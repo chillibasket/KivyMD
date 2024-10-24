@@ -158,7 +158,7 @@ class HoverBehavior:
         if not self.collide_point(
             *self.to_widget(*pos)
             if not isinstance(self, RelativeLayout)
-            else (pos[0], pos[1])
+            else self.to_parent(*self.to_widget(*pos))
         ):
             self.hovering = False
             self.enter_point = None
