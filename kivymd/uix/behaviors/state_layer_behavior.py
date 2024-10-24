@@ -490,6 +490,7 @@ class StateLayerBehavior(FocusBehavior):
         from kivymd.uix.chip import MDChip
         from kivymd.uix.selectioncontrol import MDSwitch, MDCheckbox
         from kivymd.uix.list import BaseListItem
+        from kivymd.uix.menu.menu import BaseDropdownItem
         from kivymd.uix.textfield import MDTextField
         from kivymd.uix.tab.tab import MDTabsItemBase
 
@@ -508,6 +509,7 @@ class StateLayerBehavior(FocusBehavior):
                     MDSwitch,
                     MDCheckbox,
                     BaseListItem,
+                    BaseDropdownItem,
                     MDTabsItemBase,
                 ),
             )
