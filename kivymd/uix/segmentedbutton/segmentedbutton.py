@@ -543,6 +543,7 @@ class MDSegmentedButtonItem(
     def on_disabled(self, instance, value) -> None:
         """Fired when the :attr:`disabled` value changes."""
 
+        super().on_disabled(instance, value)
         selected_icon = None
 
         if self._icon and self._segmented_button:

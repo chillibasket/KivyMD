@@ -215,7 +215,7 @@ class StateLayerBehavior(FocusBehavior):
     def set_properties_widget(self) -> None:
         """Fired `on_release/on_press/on_enter/on_leave` events."""
 
-        if not self.disabled:
+        if not self._is_already_disabled:
             self._restore_properties()
             self._set_state_layer_color()
 
@@ -238,6 +238,9 @@ class StateLayerBehavior(FocusBehavior):
         from kivymd.uix.textfield import MDTextField
 
         if value and not self._is_already_disabled:
+            if self.hovering:
+                self.dispatch("on_leave")
+
             self._is_already_disabled = True
             if isinstance(self, MDCard):
                 self.state_layer_color = (
@@ -343,6 +346,9 @@ class StateLayerBehavior(FocusBehavior):
             self.state_layer_color = self.theme_cls.transparentColor
             self._is_already_disabled = False
 
+            if self.hovering:
+                self.dispatch("on_enter")
+
     def on_enter(self) -> None:
         """Fired when mouse enter the bbox of the widget."""
 
@@ -411,7 +417,7 @@ class StateLayerBehavior(FocusBehavior):
 
         target_color = None
 
-        if not self.disabled:
+        if not self._is_already_disabled:
             self._restore_properties()
 
             if isinstance(self, MDTextField):
