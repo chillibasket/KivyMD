@@ -842,23 +842,6 @@ class MDSwitch(StateLayerBehavior, MDFloatLayout):
         self.set_icon(self, icon)
         self._update_thumb_pos()
 
-    # FIXME: If you move the cursor from the switch during the
-    #  `on_touch_down` event, the animation of returning the thumb to
-    #  the previous size does not work. The following code fixes this.
-    def on_thumb_down(self) -> None:
-        """
-        Fired at the on_touch_down event of the :class:`~Thumb` object.
-        Indicates the state of the switch "on/off" by an animation of
-        increasing the size of the thumb.
-        """
-
-        if self.active:
-            size = (dp(28), dp(28))
-        else:
-            size = (dp(24), dp(24))
-
-        Animation(size=size, t="out_quad", d=0.2).start(self.ids.thumb)
-
     def _update_thumb_pos(self, *args, animation=True):
         if self.active:
             _thumb_pos = (
