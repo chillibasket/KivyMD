@@ -861,3 +861,9 @@ class MDSwitch(StateLayerBehavior, MDFloatLayout):
             )
         else:
             self._thumb_pos = _thumb_pos
+
+    def keyboard_on_key_down(self, window, keycode, text, modifiers) -> bool:
+        if keycode[1] == "spacebar" or keycode[1] == "enter" or keycode[1] == "return":
+            self.active = not self.active
+
+        return super().keyboard_on_key_down(window, keycode, text, modifiers)

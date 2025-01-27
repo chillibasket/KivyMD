@@ -382,7 +382,11 @@ class CommonRipple:
             )
             self.anim_complete()
         self._ripple_rad = self.ripple_rad_default
-        self.ripple_pos = (touch.x, touch.y)
+
+        if touch is not None:
+            self.ripple_pos = (touch.x, touch.y)
+        else:
+            self.ripple_pos = (self.pos[0] + self.width / 2, self.pos[1] + self.height / 2)
 
         if self.ripple_color:
             pass

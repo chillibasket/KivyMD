@@ -209,8 +209,18 @@ class StateLayerBehavior(FocusBehavior):
     _shadow_softness = [0, 0]
     _elevation_level = 0
 
-    # def __init__(self, *args, **kwargs):
-    #     super().__init__(*args, **kwargs)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        from kivymd.uix.selectioncontrol import MDSwitch
+        from kivy.uix.behaviors import ButtonBehavior
+        from kivy.uix.textinput import TextInput
+
+        if isinstance(self, (ButtonBehavior, TextInput, MDSwitch)):
+            self.is_focusable = True
+        else:
+            self.is_focusable = False
+
 
     def set_properties_widget(self) -> None:
         """Fired `on_release/on_press/on_enter/on_leave` events."""
@@ -360,6 +370,15 @@ class StateLayerBehavior(FocusBehavior):
 
         self._state = 0.0
         self.set_properties_widget()
+
+    def on_focus(self, *args) -> None:
+        """Fired when keyboard tab is used to focus the widget"""
+        if self.focus:
+            self._state = self.state_hover
+            self.set_properties_widget()
+        else:
+            self._state = 0.0
+            self.set_properties_widget()
 
     def _on_release(self, *args):
         """

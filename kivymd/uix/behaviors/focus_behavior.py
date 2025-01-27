@@ -68,9 +68,10 @@ __all__ = ("FocusBehavior",)
 from kivy.properties import BooleanProperty, ColorProperty
 
 from kivymd.uix.behaviors import HoverBehavior
+from kivy.uix.behaviors import FocusBehavior as KivyFocusBehaviour
 
 
-class FocusBehavior(HoverBehavior):
+class FocusBehavior(HoverBehavior, KivyFocusBehaviour):
     """
     Focus behavior class.
 

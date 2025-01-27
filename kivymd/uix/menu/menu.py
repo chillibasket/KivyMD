@@ -1279,6 +1279,8 @@ class MDDropdownMenu(MotionDropDownMenuBehavior, StencilBehavior, MDCard):
         self.scale_value_center = self.caller.to_window(*self.caller.center)
         self.set_menu_pos()
         self.on_open()
+        if len(self.menu.data[0]) > 0:
+            self.menu.data[0]['focus'] = True
 
     def on_items(self, instance, value: list) -> None:
         """

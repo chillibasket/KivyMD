@@ -15,6 +15,7 @@ class Example(MDApp, CommonApp):
             MDSwitch(
                 icon_active="check",
                 icon_inactive="close",
+                disabled=True,
             )
         )
 
