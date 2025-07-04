@@ -911,7 +911,6 @@ class BaseButton(
         Clock.schedule_once(reset_state, 0.2)
         
     def keyboard_on_key_down(self, window, keycode, text, modifiers) -> bool:
-        print("Press key: ", keycode[1])
         if keycode[1] == "spacebar" or keycode[1] == "enter" or keycode[1] == "return":
             self.on_press()
             self.call_ripple_animation_methods(None)
@@ -1139,6 +1138,11 @@ class MDIconButton(RectangularRippleBehavior, ButtonBehavior, MDIcon):
 
         if not self.disabled and self.theme_line_color == "Custom":
             self._line_color = value
+
+    def on_press(self, *args) -> None:
+        """Fired when the button is pressed."""
+
+        self._on_press(args)
 
     def keyboard_on_key_down(self, window, keycode, text, modifiers) -> bool:
         if keycode[1] == "spacebar" or keycode[1] == "enter" or keycode[1] == "return":

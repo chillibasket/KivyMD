@@ -13,7 +13,8 @@ from kivy import platform
 from kivy.lang import Builder
 from kivy.properties import ColorProperty, NumericProperty
 
-from kivymd.uix.behaviors.focus_behavior import FocusBehavior
+from kivymd.uix.behaviors.focus_behavior import StateFocusBehavior
+from kivy.uix.behaviors import FocusBehavior
 
 Builder.load_string(
     """
@@ -35,7 +36,7 @@ Builder.load_string(
 #  `on_enter` and `on_leave` and `pressed`).
 
 
-class StateLayerBehavior(FocusBehavior):
+class StateLayerBehavior(StateFocusBehavior, FocusBehavior):
     state_layer_color = ColorProperty([0, 0, 0, 0])
     """
     The color of the layer state.
@@ -217,6 +218,7 @@ class StateLayerBehavior(FocusBehavior):
 
         if isinstance(self, (ButtonBehavior, TextInput, MDSwitch)):
             self.is_focusable = True
+            self.unfocus_on_touch = False
         else:
             self.is_focusable = False
 
@@ -370,6 +372,9 @@ class StateLayerBehavior(FocusBehavior):
         self._state = 0.0
         self.set_properties_widget()
 
+    def on_parent(self, widget, parent):
+        self.focus = True
+
     def on_focus(self, *args) -> None:
         """Fired when keyboard tab is used to focus the widget"""
         if self.focus:
@@ -394,6 +399,7 @@ class StateLayerBehavior(FocusBehavior):
     def _on_press(self, *args):
         """Fired when the button is pressed."""
 
+        self.focus = True
         self._state = self.state_press
         self.set_properties_widget()
 

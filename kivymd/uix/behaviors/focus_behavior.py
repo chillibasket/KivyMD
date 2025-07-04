@@ -69,10 +69,9 @@ from kivy import Logger
 from kivy.properties import BooleanProperty, ColorProperty
 
 from kivymd.uix.behaviors import HoverBehavior
-from kivy.uix.behaviors import FocusBehavior as KivyFocusBehaviour
 
 
-class FocusBehavior(HoverBehavior, KivyFocusBehaviour):
+class FocusBehavior(HoverBehavior):
     """
     Focus behavior class.
 
@@ -93,11 +92,12 @@ class FocusBehavior(HoverBehavior, KivyFocusBehaviour):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        Logger.warning(
-            "KivyMD: "
-            "The `FocusBehavior` class is deprecated. It is recommended to "
-            "use `StateFocusBehavior` instead of `FocusBehavior`."
-        )
+        if type(self) == FocusBehavior:
+            Logger.warning(
+                "KivyMD: "
+                "The `FocusBehavior` class is deprecated. It is recommended to "
+                "use `StateFocusBehavior` instead of `FocusBehavior`."
+            )
 
     focus_behavior = BooleanProperty(True)
     """

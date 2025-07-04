@@ -79,7 +79,7 @@ from kivymd.uix.behaviors import (
     DeclarativeBehavior,
     ScaleBehavior,
 )
-from kivymd.uix.behaviors.focus_behavior import FocusBehavior
+from kivymd.uix.behaviors.focus_behavior import StateFocusBehavior
 from kivymd.uix.label import MDLabel
 
 with open(
@@ -430,7 +430,7 @@ class MDSlider(DeclarativeBehavior, ThemableBehavior, Slider):
 
 
 class MDSliderHandle(
-    ThemableBehavior, BackgroundColorBehavior, FocusBehavior, Widget
+    ThemableBehavior, BackgroundColorBehavior, StateFocusBehavior, Widget
 ):
     """
     Handle class.
@@ -440,7 +440,7 @@ class MDSliderHandle(
     For more information, see in the
     :class:`~kivymd.theming.ThemableBehavior` and
     :class:`~kivymd.uix.behaviors.backgroundcolor_behavior.BackgroundColorBehavior` and
-    :class:`~kivymd.uix.behaviors.focus_behavior.FocusBehavior` and
+    :class:`~kivymd.uix.behaviors.focus_behavior.StateFocusBehavior` and
     :class:`~kivy.uix.widget.Widget`
     classes documentation.
     """

@@ -23,6 +23,7 @@ from kivy.properties import (
 Builder.load_string(
     """
 #:import RelativeLayout kivy.uix.relativelayout.RelativeLayout
+# #:import FocusBehavior kivy.uix.behaviors.FocusBehavior
 
 
 <BackgroundColorBehavior>
@@ -67,6 +68,29 @@ Builder.load_string(
                 self.height, \
                 *self.radius, \
                 ]
+        # Color:
+        #     rgba: 
+        #         (1, 1, 1, 1) \
+        #         if isinstance(self, FocusBehavior) and self.focus else \
+        #         (1, 1, 1, 0)
+        # SmoothLine:
+        #     width: (root.line_width * 2)
+        #     rounded_rectangle:
+        #         [ \
+        #         dp(3),
+        #         dp(3), \
+        #         (self.width - dp(6)), \
+        #         (self.height - dp(6)), \
+        #         *self.radius, \
+        #         ] \
+        #         if isinstance(self, RelativeLayout) else \
+        #         [ \
+        #         (self.x + dp(3)),
+        #         (self.y + dp(3)), \
+        #         (self.width - dp(6)), \
+        #         (self.height - dp(6)), \
+        #         *self.radius, \
+        #         ]
         PopMatrix
 """,
     filename="BackgroundColorBehavior.kv",
