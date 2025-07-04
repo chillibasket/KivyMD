@@ -1069,6 +1069,7 @@ from kivy.uix.recycleview import RecycleView
 from kivymd import uix_path
 from kivymd.uix.behaviors import RectangularRippleBehavior, StencilBehavior
 from kivymd.uix.behaviors.motion_behavior import MotionDropDownMenuBehavior
+from kivymd.uix.behaviors.state_layer_behavior import StateLayerBehavior
 from kivymd.uix.boxlayout import MDBoxLayout
 from kivymd.uix.card import MDCard
 from kivymd.uix.label import MDLabel
@@ -1095,7 +1096,7 @@ class MDMenu(RecycleView):
     """
 
 
-class BaseDropdownItem(RectangularRippleBehavior, ButtonBehavior, MDBoxLayout):
+class BaseDropdownItem(RectangularRippleBehavior, ButtonBehavior, MDBoxLayout, StateLayerBehavior):
     """
     Base class for menu items.
 
@@ -1709,7 +1710,7 @@ class MDDropdownMenu(MotionDropDownMenuBehavior, StencilBehavior, MDCard):
         self._tar_x, self._tar_y = self.get_target_pos()
         self.x = self._tar_x
         self.y = self._tar_y - self.target_height
-        self.scale_value_center = self.caller.center
+        self.scale_value_center = self.caller.to_window(*self.caller.center)
         self.set_menu_pos()
         self.on_open()
 

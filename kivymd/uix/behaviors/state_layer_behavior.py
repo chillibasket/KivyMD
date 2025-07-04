@@ -490,6 +490,7 @@ class StateLayerBehavior(FocusBehavior):
         )
         from kivymd.uix.selectioncontrol import MDCheckbox, MDSwitch
         from kivymd.uix.tab.tab import MDTabsItemBase
+        from kivymd.uix.menu.menu import BaseDropdownItem
         from kivymd.uix.textfield import MDTextField
 
         target_color = self._get_target_color()
@@ -507,6 +508,7 @@ class StateLayerBehavior(FocusBehavior):
                     MDSwitch,
                     MDCheckbox,
                     BaseListItem,
+                    BaseDropdownItem,
                     MDTabsItemBase,
                 ),
             )
