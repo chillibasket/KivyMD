@@ -126,9 +126,11 @@
         if self.line_color_disabled else \
         self._line_color \
         )
-    on_touch_up:
-        if self.collide_point(*args[1].pos) and not self.disabled: \
-        setattr(root, "active", not self.active)
+
+    on_press:
+        if not self.disabled: self.on_thumb_down()
+    on_release:
+        if not self.disabled: setattr(self, "active", not self.active)
 
     Thumb:
         id: thumb
@@ -158,6 +160,10 @@
             self.theme_cls.outlineColor \
             ) \
             )
+        on_press:
+            if not root.disabled: root.dispatch("on_press")
+        on_release:
+            if not root.disabled: root.dispatch("on_release")
         pos:
             root.pos[0] + (self.width / 2) + root._thumb_pos[0] \
             + dp(6 if root.icon_inactive else 0), \

@@ -449,7 +449,11 @@ class RectangularRippleBehavior(CommonRipple):
         if not self.ripple_effect:
             return
 
-        with self.canvas.after if self.ripple_canvas_after else self.canvas.before:
+        with (
+            self.canvas.after
+            if self.ripple_canvas_after
+            else self.canvas.before
+        ):
             if hasattr(self, "radius"):
                 if isinstance(self.radius, (float, int)):
                     self.radius = [
@@ -513,7 +517,11 @@ class CircularRippleBehavior(CommonRipple):
         if not self.ripple_effect:
             return
 
-        with self.canvas.after if self.ripple_canvas_after else self.canvas.before:
+        with (
+            self.canvas.after
+            if self.ripple_canvas_after
+            else self.canvas.before
+        ):
             StencilPush(group="circular_ripple_behavior")
             self.stencil = Ellipse(
                 size=(
