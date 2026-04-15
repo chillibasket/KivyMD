@@ -17,15 +17,36 @@ Components/Chip
 Usage
 -----
 
-.. code-block:: kv
+.. tabs::
 
-    MDChip:
+    .. tab:: Declarative KV style
 
-        MDChipLeadingAvatar:  # MDChipLeadingIcon
+        .. code-block:: kv
 
-        MDChipText:
+            MDChip:
 
-        MDChipTrailingIcon:
+                MDChipLeadingAvatar:  # MDChipLeadingIcon
+
+                MDChipText:
+
+                MDChipTrailingIcon:
+
+    .. tab:: Declarative Python style
+
+        .. code-block:: python
+
+            MDChip(
+                # MDChipLeadingIcon
+                MDChipLeadingAvatar(
+                    ...
+                ),
+                MDChipText(
+                    ...
+                ),
+                MDChipTrailingIcon(
+                    ...
+                ),
+            )
 
 Anatomy
 =======
@@ -495,9 +516,6 @@ Example of filtering
 
             Example().run()
 
-.. image:: https://github.com/HeaTTheatR/KivyMD-data/raw/master/gallery/kivymddoc/example-filtering-icons-chip.gif
-    :align: center
-
     .. tab:: Declarative python style
 
         .. code-block:: python
@@ -640,6 +658,9 @@ Example of filtering
 
 
             Example().run()
+
+.. image:: https://github.com/HeaTTheatR/KivyMD-data/raw/master/gallery/kivymddoc/example-filtering-icons-chip.gif
+    :align: center
 
 Tap a chip to select it. Multiple chips can be selected or unselected:
 

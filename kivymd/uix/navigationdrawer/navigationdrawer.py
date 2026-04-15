@@ -273,27 +273,27 @@ Modal
 Anchoring screen edge for drawer
 ================================
 
-    Left
-    ----
+Left
+----
 
     .. code-block:: kv
 
         MDNavigationDrawer:
             anchor: "left"
 
-    .. image:: https://github.com/HeaTTheatR/KivyMD-data/raw/master/gallery/kivymddoc/navigation-drawer-ancjor-left.png
-        :align: center
+.. image:: https://github.com/HeaTTheatR/KivyMD-data/raw/master/gallery/kivymddoc/navigation-drawer-ancjor-left.png
+    :align: center
 
-    Right
-    -----
+Right
+-----
 
     .. code-block:: kv
 
         MDNavigationDrawer:
             anchor: "right"
 
-    .. image:: https://github.com/HeaTTheatR/KivyMD-data/raw/master/gallery/kivymddoc/navigation-drawer-ancjor-right.png
-        :align: center
+.. image:: https://github.com/HeaTTheatR/KivyMD-data/raw/master/gallery/kivymddoc/navigation-drawer-ancjor-right.png
+    :align: center
 
 API break
 =========
@@ -753,7 +753,7 @@ from kivymd import uix_path
 from kivymd.uix import MDAdaptiveWidget
 from kivymd.uix.appbar import MDTopAppBar
 from kivymd.uix.behaviors import DeclarativeBehavior
-from kivymd.uix.behaviors.focus_behavior import FocusBehavior
+from kivymd.uix.behaviors.focus_behavior import StateFocusBehavior
 from kivymd.uix.card import MDCard
 from kivymd.uix.label import MDLabel
 from kivymd.uix.list import (
@@ -924,14 +924,14 @@ class MDNavigationDrawerHeader(DeclarativeBehavior, MDAdaptiveWidget, BoxLayout)
 
 
 class MDNavigationDrawerItem(
-    MDListItem, FocusBehavior, BaseNavigationDrawerItem
+    MDListItem, StateFocusBehavior, BaseNavigationDrawerItem
 ):
     """
     Implements an item for the :class:`~MDNavigationDrawer` menu list.
 
     For more information, see in the
     :class:`~kivymd.uix.list.list.MDListItem` and
-    :class:`~kivymd.uix.behaviors.focus_behavior.FocusBehavior` and
+    :class:`~kivymd.uix.behaviors.focus_behavior.StateFocusBehavior` and
     :class:`~BaseNavigationDrawerItem`
     classes documentation.
 
