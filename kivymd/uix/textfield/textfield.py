@@ -458,6 +458,11 @@ class Validator:
     and defaults to `None`.
     """
 
+    def is_number_valid(self, text: str) -> bool:
+        """Checks if the text contains only digits."""
+
+        return not text.isdigit()
+
     def is_email_valid(self, text: str) -> bool:
         """Checks the validity of the email."""
 
@@ -604,7 +609,7 @@ class BaseTextFieldLabel(MDLabel):
 
                 MDTextField:
                     mode: "filled"
-        
+
                     MDTextFieldHintText:
                         text: "Hint text color normal"
                         text_color_normal: "brown"
@@ -742,7 +747,7 @@ class MDTextFieldHelperText(BaseTextFieldLabel):
                         max_text_length: 5
 
         .. tab:: Declarative Python style
-    
+
             .. code-block:: python
 
                 MDTextField(
@@ -763,7 +768,7 @@ class MDTextFieldHelperText(BaseTextFieldLabel):
     ----------
 
     .. tabs::
-    
+
         .. tab:: Declarative KV style
 
             .. code-block:: kv
@@ -776,7 +781,7 @@ class MDTextFieldHelperText(BaseTextFieldLabel):
                         mode: "persistent"
 
         .. tab:: Declarative Python style
-    
+
             .. code-block:: python
 
                 MDTextField(
@@ -825,7 +830,7 @@ class MDTextFieldMaxLengthText(BaseTextFieldLabel):
                         max_text_length: 10
 
         .. tab:: Declarative Python style
-    
+
             .. code-block:: python
 
                 MDTextField(
@@ -1489,12 +1494,14 @@ class MDTextField(
     defaults to ''.
     """
 
-    validator = OptionProperty(None, options=["date", "email", "time", "phone"])
+    validator = OptionProperty(
+        None, options=["date", "email", "time", "phone", "number"]
+    )
     """
     The type of text field for entering Email, time, etc.
     Automatically sets the type of the text field as "error" if the user input
     does not match any of the set validation types.
-    Available options are: `'date'`, `'email'`, `'time'`.
+    Available options are: `'date'`, `'email'`, `'time'`, `'phone'`, `number`.
 
     When using `'date'`, :attr:`date_format` must be defined.
 
@@ -2031,6 +2038,8 @@ class MDTextField(
             self.text = re.sub("\n", " ", text) if not self.multiline else text
             self.set_max_text_length()
 
+            Clock.schedule_once(lambda x: self.on_focus(self, self.focus), 0.01)
+
             if self.text and self._get_has_error() or self._get_has_error():
                 self.error = True
             elif self.text and not self._get_has_error():
@@ -2539,6 +2548,7 @@ class MDTextField(
                 "date": self.is_date_valid,
                 "email": self.is_email_valid,
                 "time": self.is_time_valid,
+                "number": self.is_number_valid,
             }[self.validator](self.text)
             return has_error
         if (

@@ -891,7 +891,11 @@ class MDTopAppBar(
         elif isinstance(widget, MDTopAppBarLeadingButtonContainer):
             self._leading_button_container = widget
             widget._appbar = self
-            Clock.schedule_once(lambda x: self.ids.root_box.add_widget(widget, len(self.ids.root_box.children)))
+            Clock.schedule_once(
+                lambda x: self.ids.root_box.add_widget(
+                    widget, len(self.ids.root_box.children)
+                )
+            )
         else:
             return super().add_widget(widget)
 
@@ -1289,6 +1293,7 @@ class MDBottomAppBar(
             self.button_centering_animation(widget)
         elif isinstance(widget, MDFabBottomAppBarButton):
             widget.bind(icon=self.set_fab_icon)
+            self.set_fab_icon(widget, widget.icon)
             self._fab_bottom_app_bar_button = widget
             Clock.schedule_once(self.set_fab_opacity)
             widget.scale_value_x = int(not self.animation)

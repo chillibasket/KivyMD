@@ -5,6 +5,9 @@ Register KivyMD widgets to use without import.
 from kivy.factory import Factory
 
 register = Factory.register
+register("MDCarousel", module="kivymd.uix.carousel")
+register("MDCarouselItem", module="kivymd.uix.carousel")
+register("MDDataTable", module="kivymd.uix.datatables")
 register("MDSegmentedButton", module="kivymd.uix.segmentedbutton")
 register("MDSegmentedButtonItem", module="kivymd.uix.segmentedbutton")
 register("MDSegmentButtonIcon", module="kivymd.uix.segmentedbutton")
@@ -137,3 +140,12 @@ register("MDDropDownItemText", module="kivymd.uix.dropdownitem")
 register("MDCircularLayout", module="kivymd.uix.circularlayout")
 register("MDHeroFrom", module="kivymd.uix.hero")
 register("MDHeroTo", module="kivymd.uix.hero")
+register("MDSearchBar", module="kivymd.uix.search")
+register("MDSearchTrailingAvatar", module="kivymd.uix.search")
+register("MDSearchTrailingIcon", module="kivymd.uix.search")
+register("MDSearchLeadingIcon", module="kivymd.uix.search")
+register("MDSearchViewContainer", module="kivymd.uix.search")
+register("MDSearchBarLeadingContainer", module="kivymd.uix.search")
+register("MDSearchBarTrailingContainer", module="kivymd.uix.search")
+register("MDSearchViewLeadingContainer", module="kivymd.uix.search")
+register("MDSearchViewTrailingContainer", module="kivymd.uix.search")

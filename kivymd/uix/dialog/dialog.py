@@ -737,3 +737,7 @@ class MDDialogButtonContainer(DeclarativeBehavior, BoxLayout):
 class MDDialogScrim(Widget):
     color = ColorProperty(None)
     alpha = NumericProperty(0)
+
+
+class MDDialogSpacer(Widget):
+    pass

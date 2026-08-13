@@ -46,8 +46,8 @@ Usage of tooltip plain
 
                 MDTooltipPlain:
                     text:
-                        "Grant value is calculated using the closing stock price \\\\n" \\
-                        "from the day before the grant date. Amounts do not \\\\n" \\
+                        "Grant value is calculated using the closing stock price \\n"
+                        "from the day before the grant date. Amounts do not \\n"
                         "reflect tax witholdings."
 
 
@@ -104,9 +104,11 @@ Usage of tooltip plain
                     super().__init__(**kwargs)
                     self.widgets = [
                         MDTooltipPlain(
-                            text="Grant value is calculated using the closing stock price \n"
-                            "from the day before the grant date. Amounts do not \n"
-                            "reflect tax witholdings.",
+                            text=(
+                                "Grant value is calculated using the closing stock price \n"
+                                "from the day before the grant date. Amounts do not \n"
+                                "reflect tax witholdings."
+                            ),
                         )
                     ]
 
@@ -182,8 +184,8 @@ Usage of tooltip rich
 
                     MDTooltipRichSupportingText:
                         text:
-                            "Grant value is calculated using the closing stock price \\\\n" \\
-                            "from the day before the grant date. Amounts do not \\\\n" \\
+                            "Grant value is calculated using the closing stock price \\n"
+                            "from the day before the grant date. Amounts do not \\n"
                             "reflect tax witholdings."
 
                     MDTooltipRichActionButton:
@@ -256,9 +258,11 @@ Usage of tooltip rich
                                 text="Add others",
                             ),
                             MDTooltipRichSupportingText(
-                                text="Grant value is calculated using the closing stock price \n"
-                                "from the day before the grant date. Amounts do not \n"
-                                "reflect tax witholdings."
+                                text=(
+                                    "Grant value is calculated using the closing stock price \n"
+                                    "from the day before the grant date. Amounts do not \n"
+                                    "reflect tax witholdings."
+                                ),
                             ),
                             MDTooltipRichActionButton(
                                 MDButtonText(
@@ -471,7 +475,7 @@ class MDTooltip(TouchBehavior):
     def display_tooltip(self, *args) -> None:
         """Adds a tooltip widget to the screen and animates its display."""
 
-        if not self._tooltip or self._tooltip.parent:
+        if not self._tooltip or self._tooltip.parent or not self._tooltip.text:
             return
 
         Window.add_widget(self._tooltip)

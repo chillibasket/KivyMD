@@ -1,0 +1,3011 @@
+"""
+Components/DataTables
+=====================
+
+.. rubric:: Data tables display sets of data across rows and columns.
+
+.. image:: https://github.com/HeaTTheatR/KivyMD-data/raw/master/gallery/kivymddoc/data-tables-m3-previous.png
+    :align: center
+
+.. note:: `MDDataTable` allows developers to sort the data provided by column.
+    This happens thanks to the use of an external function that you can bind
+    while you're defining the table columns. Be aware that the sorting function
+    must return a 2 value list in the format of: `[Index, Sorted_Row_Data]`
+
+    This is because the index list is needed to allow MDDataTable to keep track
+    of the selected rows. and, after the data is sorted, update the row
+    checkboxes.
+
+"""
+
+# Special thanks for the info -
+# https://stackoverflow.com/questions/50219281/python-how-to-add-vertical-scroll-in-recycleview
+
+__all__ = ("MDDataTable",)
+
+import os
+from collections import defaultdict
+from typing import Union
+
+from kivy.clock import Clock
+from kivy.factory import Factory
+from kivy.lang import Builder
+from kivy.logger import Logger
+from kivy.metrics import dp
+from kivy.properties import (
+    BooleanProperty,
+    ColorProperty,
+    DictProperty,
+    ListProperty,
+    NumericProperty,
+    ObjectProperty,
+    OptionProperty,
+    StringProperty,
+    VariableListProperty,
+)
+from kivy.uix.anchorlayout import AnchorLayout
+from kivy.uix.behaviors import ButtonBehavior, FocusBehavior
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.recyclegridlayout import RecycleGridLayout
+from kivy.uix.recycleview import RecycleView
+from kivy.uix.recycleview.layout import LayoutSelectionBehavior
+from kivy.uix.recycleview.views import RecycleDataViewBehavior
+from kivy.uix.scrollview import ScrollView
+
+from kivymd import uix_path
+from kivymd.effects.stiffscroll import StiffScrollEffect
+from kivymd.theming import ThemableBehavior
+from kivymd.uix.behaviors import CommonElevationBehavior, HoverBehavior
+from kivymd.uix.behaviors.state_layer_behavior import StateLayerBehavior
+from kivymd.uix.button import MDIconButton
+from kivymd.uix.menu import MDDropdownMenu
+from kivymd.uix.selectioncontrol import MDCheckbox
+from kivymd.uix.tooltip import MDTooltip
+
+with open(
+    os.path.join(uix_path, "datatables", "datatables.kv"), encoding="utf-8"
+) as kv_file:
+    Builder.load_string(kv_file.read())
+
+
+class TableRecycleGridLayout(
+    FocusBehavior, LayoutSelectionBehavior, RecycleGridLayout
+):
+    """
+    Layout manager for handling row selection in the table.
+
+    Stores the state of the currently selected row and its index.
+    Provides methods for retrieving a list of selectable nodes
+    and selecting a row by its index in the table data.
+    """
+
+    selected_row = NumericProperty(0)
+    """
+    Index of the currently selected row in the data..
+
+    :attr:`selected_row` is an :class:`~kivy.properties.NumericProperty`
+    and defaults to `0`.
+    """
+
+    table_data = ObjectProperty(None)
+    """
+    Reference to the parent TableData instance.
+
+    :attr:`table_data` is an :class:`~kivy.properties.ObjectProperty`
+    and defaults to `None`.
+    """
+
+    def get_nodes(self):
+        """
+        Returns the list of selectable nodes and the index of the currently
+        selected row.
+
+        If no row is currently selected, the first row is selected automatically.
+        Clears the current selection before returning.
+
+        Returns:
+            tuple:
+                A tuple containing:
+
+                - **last** (`int` or `None`): Index of the currently selected
+                  node within the selectable nodes list.
+                - **nodes** (`list` or `None`): List of selectable node indices.
+        """
+
+        nodes = self.get_selectable_nodes()
+
+        if self.nodes_order_reversed:
+            nodes = nodes[::-1]
+        if not nodes:
+            return None, None
+
+        selected = self.selected_nodes
+
+        if not selected:  # nothing selected, select the first
+            self.selected_row = 0
+            self.select_row(nodes)
+
+            return None, None
+
+        if len(nodes) == 1:  # the only selectable node is selected already
+            return None, None
+
+        index = selected[-1]
+
+        if index >= len(nodes):
+            last = len(nodes) - 1
+        else:
+            last = nodes.index(index)
+
+        self.clear_selection()
+
+        return last, nodes
+
+    def select_next(self, instance):
+        """
+        Selects the next row in the table.
+
+        If the last row is currently selected, selection wraps around to the
+        first row.
+
+        Args:
+            instance: The :class:`TableData` instance that owns the selection.
+        """
+
+        self.table_data = instance
+        last, nodes = self.get_nodes()
+
+        if not nodes:
+            return
+
+        if last == len(nodes) - 1:
+            self.selected_row = nodes[0]
+        else:
+            self.selected_row = nodes[last + 1]
+
+        self.selected_row += self.table_data.total_col_headings
+        self.select_row(nodes)
+
+    def select_current(self, instance):
+        """
+        Reselects the currently selected row.
+
+        Args:
+            instance: The :class:`TableData` instance that owns the selection.
+        """
+
+        self.table_data = instance
+        last, nodes = self.get_nodes()
+
+        if not nodes:
+            return
+
+        self.select_row(nodes)
+
+    def select_row(self, nodes):
+        """
+        Selects all cells that belong to the currently selected row.
+
+        Args:
+            nodes (list):
+                List of selectable node indices.
+        """
+
+        row_range = self.table_data.recycle_data[self.selected_row]["range"]
+
+        for index in nodes:
+            if row_range[0] <= index <= row_range[1]:
+                self.select_node(index)
+
+
+class CellHeader(BoxLayout, HoverBehavior):
+    """
+    Implements the label text in the column header panel from
+    :attr:`~MDDataTable.column_data` data.
+    """
+
+    text = StringProperty()
+    """
+    Column text.
+
+    :attr:`text` is an :class:`~kivy.properties.StringProperty`
+    and defaults to `''`.
+    """
+
+    tooltip = StringProperty()
+    """
+    Tooltip containing descriptive text for the column.
+    If the tooltip is not provided, column `text` shall be used instead.
+
+    :attr:`tooltip` is a :class:`~kivy.properties.StringProperty`
+    and defaults to `''`.
+    """
+
+    # TODO: Added example.
+    sort_action = ObjectProperty()
+    """
+    Custom function for sorting.
+
+    :attr:`sort_action` is an :class:`~kivy.properties.ObjectProperty`
+    and defaults to `None`.
+    """
+
+    table_data = ObjectProperty()
+    """
+    :class:`~TableData` class.
+
+    :attr:`table_data` is an :class:`~kivy.properties.ObjectProperty`
+    and defaults to `None`.
+    """
+
+    is_sorted = BooleanProperty(False)
+    sorted_order = StringProperty()
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(**kwargs)
+
+        if self.sort_action:
+            box = self.ids.box
+            ib = SortButton()
+            ib.bind(on_release=self._sort_release)
+
+            if self.is_sorted:
+                ib.icon = (
+                    "arrow-down" if self.sorted_order == "ASC" else "arrow-up"
+                )
+                ib.size = [dp(24), dp(24)]
+                ib.opacity = 1
+            else:
+                self.bind(on_enter=self.set_sort_btn)
+                self.bind(on_leave=self.set_sort_btn)
+
+            box.add_widget(ib, index=1)
+
+    def restore_checks(self, indices: dict) -> None:
+        curr_checks = self.table_data.current_selection_check
+        rows_num = self.table_data.rows_num
+        columns = self.table_data.total_col_headings
+        new_checks = defaultdict(list)
+
+        for i, x in enumerate(curr_checks):
+            for j, y in enumerate(curr_checks[x]):
+                new_page = (indices[y // columns + x * rows_num]) // rows_num
+                new_indice = (
+                    (indices[y // columns + x * rows_num]) % rows_num
+                ) * columns
+                new_checks[new_page].append(new_indice)
+
+        self.table_data.current_selection_check = dict(new_checks)
+
+    def set_sort_btn(self, instance_cell_header) -> None:
+        btn = instance_cell_header.ids.box.children[-1]
+
+        if btn.opacity:
+            btn.size = [dp(24), dp(0)]
+            btn.opacity = 0
+        else:
+            btn.size = [dp(24), dp(24)]
+            btn.opacity = 1
+
+    def _sort_release(self, inst):
+        inst.icon = "arrow-down" if inst.icon == "arrow-up" else "arrow-up"
+
+        if not self.parent.parent._col_with_sort:
+            c = self.parent.children
+            col_with_sort = [
+                each
+                for each in c
+                if each.ids.get("box", None) and len(each.ids.box.children) == 2
+            ]
+            self.parent.parent._col_with_sort = col_with_sort
+        else:
+            col_with_sort = self.parent.parent._col_with_sort
+
+        for each in col_with_sort:
+            if each == self:
+                self.unbind(on_enter=self.set_sort_btn)
+                self.unbind(on_leave=self.set_sort_btn)
+            else:
+                btn = each.ids.box.children[-1]
+                btn.size = [dp(24), dp(0)]
+                btn.opacity = 0
+                each.bind(on_enter=each.set_sort_btn)
+                each.bind(on_leave=each.set_sort_btn)
+
+        if self.sort_action:
+            if not self.table_data:
+                th = self.parent.parent
+                self.table_data = th.table_data
+
+            indices, sorted_data = self.sort_action(self.table_data.row_data)
+
+            if not sorted_data:
+                return
+
+            if inst.icon == "arrow-down":
+                sorted_data = sorted_data[::-1]
+                indices = indices[::-1]
+
+            self.table_data.row_data = sorted_data
+            self.table_data.on_rows_num(self, self.table_data.rows_num)
+            self.restore_checks(dict(zip(indices, range(len(indices)))))
+            self.table_data.set_next_row_data_parts("reset")
+            self.table_data.cell_row_obj_dict = {}
+            self.table_data.table_header.ids.check.state = "normal"
+
+
+class CellHeaderTooltipPlain(MDTooltip):
+    """Implements your plain tooltip base class."""
+
+    tooltip_text = StringProperty()
+
+
+class CellHeaderTooltip(CellHeaderTooltipPlain, CellHeader):
+    """Implements a item with tooltip plain behavior."""
+
+
+class TableHeader(ThemableBehavior, ScrollView):
+    """
+    Implements a panel for column heading labels -
+    :attr:`~MDDataTable.column_data`.
+    """
+
+    table_data = ObjectProperty()
+    """
+    Class :class:`~TableData`.
+
+    :attr:`table_data` is an :class:`~kivy.properties.ObjectProperty`
+    and defaults to `None`.
+    """
+
+    column_data = ListProperty()
+    """
+    See :attr:`~MDDataTable.sorted_on`
+
+    :attr:`column_data` is an :class:`~kivy.properties.ListProperty`
+    and defaults to `[]`.
+    """
+
+    sorted_on = StringProperty()
+    """
+    See :attr:`~MDDataTable.sorted_on`.
+
+    :attr:`sorted_on` is an :class:`~kivy.properties.StringProperty`
+    and defaults to `''`.
+    """
+
+    cols_minimum = DictProperty()
+    """
+    See :attr:`~kivy.uix.gridlayout.GridLayout.cols_minimum`.
+
+    :attr:`cols_minimum` is an :class:`~kivy.properties.DictProperty`
+    and defaults to `{}`.
+    """
+
+    sorted_order = StringProperty()
+    """
+    See :attr:`~MDDataTable.sorted_order`.
+
+    :attr:`sorted_order` is an :class:`~kivy.properties.StringProperty`
+    and defaults to `''`.
+    """
+
+    background_color_header = ColorProperty(None)
+    """
+    See :attr:`~MDDataTable.background_color_header`.
+
+    .. versionadded:: 1.0.0
+
+    :attr:`background_color_header` is an :class:`~kivy.properties.ColorProperty`
+    and defaults to `None`.
+    """
+
+    _col_with_sort = []  # store cols which contain sort functions
+    _col_headings = ListProperty()  # column names list
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+        for i, col_heading in enumerate(self.column_data):
+            self.cols_minimum[i] = col_heading[1] * 5
+            self._col_headings.append(col_heading[0])
+            if i:
+                self.ids.header.add_widget(
+                    (
+                        CellHeaderTooltip(
+                            text=col_heading[0],
+                            sort_action=col_heading[2],
+                            tooltip=col_heading[3],
+                            width=self.cols_minimum[i],
+                            table_data=self.table_data,
+                            is_sorted=(col_heading[0] == self.sorted_on),
+                            sorted_order=self.sorted_order,
+                        )
+                        if len(col_heading) == 4
+                        else (
+                            CellHeader(
+                                text=col_heading[0],
+                                sort_action=col_heading[2],
+                                width=self.cols_minimum[i],
+                                table_data=self.table_data,
+                            )
+                            if len(col_heading) == 3
+                            else CellHeader(
+                                text=col_heading[0],
+                                sort_action=None,
+                                width=self.cols_minimum[i],
+                                table_data=self.table_data,
+                            )
+                        )
+                    )
+                )
+            else:
+                # Sets the text in the first cell.
+                self.ids.first_cell.text = col_heading[0]
+                self.ids.first_cell.tooltip = (
+                    col_heading[3] if len(col_heading) == 4 else ""
+                )
+                self.ids.first_cell.ids.separator.height = 0
+                self.ids.first_cell.width = self.cols_minimum[i]
+
+    def on_table_data(self, instance_table_header, instance_table_data) -> None:
+        """Sets the checkbox in the first cell."""
+
+        if self.table_data.check:
+            self.ids.check.size = (dp(32), dp(32))
+            self.ids.check.opacity = 1
+        else:
+            self.ids.check.size = (0, 0)
+            self.ids.check.opacity = 0
+            self.ids.box.padding[0] = 0
+            self.ids.box.spacing = 0
+
+
+class TableData(RecycleView):
+    """Implements a list of table data."""
+
+    checked_row_indices = ListProperty()
+    """
+    Indices of rows with checked checkboxes across all pages of the table.
+
+    Unlike `current_selection_check`, this property stores a single flat
+    list of selected row indices, allowing you to retrieve all checked rows
+    regardless of the current pagination page or scroll position.
+
+    :attr:`checked_row_indices` is an :class:`~kivy.properties.ListProperty`
+    and defaults to `[]`.
+    """
+
+    recycle_data = ListProperty()
+    """
+    See :attr:`~kivy.uix.recycleview.RecycleView.data`.
+
+    :attr:`recycle_data` is an :class:`~kivy.properties.ListProperty`
+    and defaults to `[]`.
+    """
+
+    data_first_cells = ListProperty()
+    """
+    List of first row cells.
+
+    :attr:`data_first_cells` is an :class:`~kivy.properties.ListProperty`
+    and defaults to `[]`.
+    """
+
+    row_data = ListProperty()
+    """
+    See :attr:`~MDDataTable.row_data`.
+
+    :attr:`row_data` is an :class:`~kivy.properties.ListProperty`
+    and defaults to `[]`.
+    """
+
+    total_col_headings = NumericProperty(0)  # TableHeader._col_headings
+    """
+    See :attr:`~TableHeader._col_headings`.
+
+    :attr:`total_col_headings` is an :class:`~kivy.properties.NumericProperty`
+    and defaults to `0`.
+    """
+
+    cols_minimum = DictProperty()
+    """
+    See :attr:`~TableHeader.cols_minimum`.
+
+    :attr:`cols_minimum` is an :class:`~kivy.properties.DictProperty`
+    and defaults to `{}`.
+    """
+
+    table_header = ObjectProperty()
+    """
+    :class:`~TableHeader` class.
+
+    :attr:`table_header` is an :class:`~kivy.properties.ObjectProperty`
+    and defaults to `None`.
+    """
+
+    pagination_menu = ObjectProperty()
+    """
+    :class:`~kivymd.uix.menu.MDDropdownMenu` class.
+
+    :attr:`pagination_menu` is an :class:`~kivy.properties.ObjectProperty`
+    and defaults to `None`.
+    """
+
+    pagination = ObjectProperty()
+    """
+    :class:`~TablePagination` class.
+
+    :attr:`pagination` is an :class:`~kivy.properties.ObjectProperty`
+    and defaults to `None`.
+    """
+
+    check = ObjectProperty()
+    """
+    See :attr:`~MDDataTable.check`.
+
+    :attr:`check` is an :class:`~kivy.properties.ObjectProperty`
+    and defaults to `None`.
+    """
+
+    rows_num = NumericProperty()
+    """
+    Number of rows displayed on the table page.
+
+    :attr:`rows_num` is an :class:`~kivy.properties.NumericProperty`
+    and defaults to `None`.
+    """
+
+    pagination_menu_open = BooleanProperty(False)
+    """
+    Open or close the menu for selecting the number of rows displayed
+    on the table page.
+
+    :attr:`pagination_menu_open` is an :class:`~kivy.properties.BooleanProperty`
+    and defaults to `False`.
+    """
+
+    current_selection_check = DictProperty()
+    """
+    List of indexes of marked checkboxes.
+
+    :attr:`current_selection_check` is an :class:`~kivy.properties.DictProperty`
+    and defaults to `{}`.
+    """
+
+    cell_row_obj_dict = {}
+
+    _parent = ObjectProperty()
+    _rows_number = NumericProperty(0)
+    _rows_num = NumericProperty()
+    _current_value = NumericProperty(1)
+    _to_value = NumericProperty()
+    _row_data_parts = ListProperty()
+
+    def __init__(self, table_header, **kwargs):
+        super().__init__(**kwargs)
+        self.table_header = table_header
+        self.total_col_headings = len(table_header._col_headings)
+        self.cols_minimum = table_header.cols_minimum
+        self.set_row_data()
+        self.effect_cls = self._parent.effect_cls
+        Clock.schedule_once(self.set_default_first_row, 0.6)
+        Clock.schedule_once(self._update_content_cells_rows, 0.6)
+
+    def get_select_row(self, index: int) -> None:
+        """Returns the current row with all elements."""
+
+        row = []
+
+        for data in self.recycle_data:
+            if index in data["range"]:
+                row.append(data["text"])
+
+        self._parent.dispatch("on_check_press", row)
+        self._get_row_checks()  # update the dict
+
+    def set_default_first_row(self, interval: Union[int, float]) -> None:
+        """Set default first row as selected."""
+
+        self.ids.row_controller.select_next(self)
+
+    def set_row_data(self) -> None:
+        data = []
+        low = 0
+        high = self.total_col_headings - 1
+        self.recycle_data = []
+        self.data_first_cells = []
+
+        if self._row_data_parts:
+            for row in self._row_data_parts[self._rows_number]:
+                for i in range(len(row)):
+                    data.append([row[i], row[0], [low, high]])
+
+                low += self.total_col_headings
+                high += self.total_col_headings
+
+            for j, x in enumerate(data):
+                r_data = {
+                    "Index": str(j),
+                    "range": x[2],
+                    "selectable": True,
+                    "viewclass": "CellRow",
+                    "table": self,
+                    "background_color_cell": self._parent.background_color_cell,
+                    "background_color_selected_cell": self._parent.background_color_selected_cell,
+                }
+
+                # We check whether the value is a dictionary with a viewclass
+                # (widget).
+                if isinstance(x[0], dict) and "viewclass" in x[0]:
+                    r_data["cell_widget"] = x[0]
+                    r_data["text"] = ""  # no text, only a widget
+                    r_data["icon"] = ""
+                # We check for the icon with text (existing format).
+                elif (
+                    isinstance(x[0], tuple) or isinstance(x[0], list)
+                ) and len(x[0]) == 3:
+                    r_data["icon"] = x[0][0]
+                    r_data["icon_color"] = x[0][1]
+                    r_data["text"] = str(x[0][2])
+                elif (
+                    isinstance(x[0], tuple) or isinstance(x[0], list)
+                ) and len(x[0]) == 2:
+                    r_data["icon"] = x[0][0]
+                    r_data["text"] = str(x[0][1])
+                else:
+                    # If x[0] == x[1] (the first cell of the row), etc.
+                    if j % self.total_col_headings == 0:
+                        r_data["text"] = str(x[0])
+                        self.data_first_cells.append(x[2][0])
+                    else:
+                        r_data["text"] = str(x[0])
+
+                self.recycle_data.append(r_data)
+
+            if not self.table_header.column_data:
+                raise ValueError("Set value for column_data in class TableData")
+
+            if not self.data_first_cells:
+                self.data_first_cells.append(
+                    self.table_header.column_data[0][0]
+                )
+
+    def set_text_from_of(self, direction: str) -> None:
+        """Sets the text of the numbers of displayed pages in table."""
+
+        if self.pagination:
+            if direction == "reset":
+                self._current_value = 1
+                self._to_value = len(self._row_data_parts[self._rows_number])
+            elif direction == "forward":
+                if (
+                    len(self._row_data_parts[self._rows_number])
+                    < self._to_value
+                ):
+                    self._current_value = self._current_value + self.rows_num
+                else:
+                    self._current_value = self._current_value + len(
+                        self._row_data_parts[self._rows_number]
+                    )
+                self._to_value = self._to_value + len(
+                    self._row_data_parts[self._rows_number]
+                )
+
+            if direction == "back":
+                self._current_value = self._current_value - len(
+                    self._row_data_parts[self._rows_number]
+                )
+                self._to_value = self._to_value - len(
+                    self._row_data_parts[self._rows_number + 1]
+                )
+            if direction == "increment":
+                self._current_value = 1
+                self._to_value = self.rows_num + self._current_value - 1
+
+            self.pagination.ids.label_rows_per_page.text = (
+                f"{self._current_value}-{self._to_value} "
+                f"of {len(self.row_data)}"
+            )
+
+    def select_all(self, state: str) -> None:
+        """Sets the checkboxes of all rows to the active/inactive position."""
+
+        self._update_content_cells_rows()
+
+        if state == "down":
+            # Select all checks on all pages.
+            rows_num = self.rows_num
+            columns = self.total_col_headings
+            full_pages = len(self.row_data) // self.rows_num
+            left_over_rows = len(self.row_data) % self.rows_num
+            new_checks = {}
+            all_indices = []
+
+            for page in range(full_pages):
+                page_indices = list(range(0, rows_num * columns, columns))
+                new_checks[page] = page_indices
+                all_indices.extend(page_indices)
+
+            if left_over_rows:
+                page_indices = list(range(0, left_over_rows * columns, columns))
+                new_checks[full_pages] = page_indices
+                all_indices.extend(page_indices)
+
+            self.current_selection_check = new_checks
+            self.checked_row_indices = (
+                all_indices  # updated checked_row_indices
+            )
+            self._update_cell_selection_state()
+
+            return
+
+        self.current_selection_check = {}  # esets all checks on all pages
+        self.checked_row_indices = []
+        self._update_cell_selection_state()
+
+    def check_all(self, state: str) -> bool:
+        """Checks if checkboxes of all rows are in the same state."""
+
+        tmp = []
+
+        for i in range(0, len(self.recycle_data), self.total_col_headings):
+            if self.cell_row_obj_dict.get(i, None):
+                cell_row_obj = self.cell_row_obj_dict[i]
+            else:
+                cell_row_obj = self.view_adapter.get_visible_view(i)
+                if cell_row_obj:
+                    self.cell_row_obj_dict[i] = cell_row_obj
+            if cell_row_obj:
+                tmp.append(cell_row_obj.ids.check.state == state)
+
+        return all(tmp)
+
+    def close_pagination_menu(self, *args) -> None:
+        """Called when the pagination menu window is closed."""
+
+        self.pagination_menu_open = False
+
+    def open_pagination_menu(self) -> None:
+        """Open pagination menu window."""
+
+        if self.pagination_menu.items:
+            self.pagination_menu_open = True
+            self.pagination_menu.open()
+
+    def set_number_displayed_lines(self, text_item) -> None:
+        """
+        Called when the user sets the number of pages displayed
+        in the table.
+        """
+
+        # self.rows_num = int(text_item)
+        self.rows_num = int(text_item)
+        self.set_next_row_data_parts("reset")
+        self.set_text_from_of("reset")
+        self.pagination_menu.caller.text = text_item
+
+    def set_next_row_data_parts(self, direction: str) -> None:
+        """Called when switching the pages of the table."""
+
+        if direction == "reset":
+            self._rows_number = 0
+            self.pagination.ids.button_back.disabled = True
+            self.pagination.ids.button_forward.disabled = False
+        elif direction == "forward":
+            self._rows_number += 1
+            self.pagination.ids.button_back.disabled = False
+        elif direction == "back":
+            self._rows_number -= 1
+            self.pagination.ids.button_forward.disabled = False
+
+        self.set_row_data()
+        self.set_text_from_of(direction)
+        self._restore_check_states()
+
+        if self._to_value == len(self.row_data):
+            self.pagination.ids.button_forward.disabled = True
+        if self._current_value == 1:
+            self.pagination.ids.button_back.disabled = True
+
+    def on_mouse_select(self, instance_cell_row) -> None:
+        """Called on the ``on_enter`` event of the :class:`~CellRow` class."""
+
+        if not self.pagination_menu_open:
+            if self.ids.row_controller.selected_row != instance_cell_row.index:
+                self.ids.row_controller.selected_row = instance_cell_row.index
+                self.ids.row_controller.select_current(self)
+
+    def on_rows_num(self, instance_table_date, value_rows_num: int) -> None:
+        if not self._to_value:
+            self._to_value = value_rows_num
+
+        self._rows_number = 0
+        self._row_data_parts = list(
+            self._split_list_into_equal_parts(self.row_data, value_rows_num)
+        )
+
+    def on_pagination(
+        self, instance_table_date, instance_table_pagination
+    ) -> None:
+        if self._to_value < len(self.row_data):
+            self.pagination.ids.button_forward.disabled = False
+
+    def _update_cell_selection_state(self):
+        """Forces an update of the selection state for all visible cells."""
+
+        for i in range(0, len(self.recycle_data), self.total_col_headings):
+            cell_row_obj = self.view_adapter.get_visible_view(i)
+            if cell_row_obj:
+                cell_row_obj.apply_selection(
+                    self, i, i in self.ids.row_controller.selected_nodes
+                )
+
+    def _update_content_cells_rows(self, *args):
+        """
+        Updates the visible cell rows in the table.
+
+        This method iterates through all data rows in `recycle_data` and
+        updates the visible cell row views. For each visible row, it stores a
+        reference to the `CellRow` object in the `cell_row_obj_dict` dictionary
+        and calls the `on_mouse_select` handler to apply the selection state.
+
+        The method is typically called when scrolling the table or updating
+        data to synchronize the state of visible rows with the current data.
+        """
+
+        for i in range(0, len(self.recycle_data), self.total_col_headings):
+            cell_row_obj = self.view_adapter.get_visible_view(i)
+
+            if cell_row_obj:
+                self.cell_row_obj_dict[i] = cell_row_obj
+                self.on_mouse_select(cell_row_obj)
+
+    def _split_list_into_equal_parts(self, lst, parts):
+        for i in range(0, len(lst), parts):
+            yield lst[i : i + parts]
+
+    def _restore_check_states(self):
+        """Restores the state of checkboxes on the current page."""
+
+        for i in range(0, len(self.recycle_data), self.total_col_headings):
+            cell_row_obj = self.view_adapter.get_visible_view(i)
+
+            if cell_row_obj:
+                # We check whether this index is selected in
+                # `checked_row_indices`.
+                is_checked = i in self.checked_row_indices
+
+                if is_checked:
+                    cell_row_obj.change_check_state_no_notify("down")
+                else:
+                    cell_row_obj.change_check_state_no_notify("normal")
+
+    def _get_row_checks(self):
+        """Returns all rows that are checked."""
+
+        checked_rows = []
+
+        for idx in self.checked_row_indices:
+            # Calculate the row index in row_data.
+            row_index = idx // self.total_col_headings
+
+            if self.row_data and row_index < len(self.row_data):
+                # We return the full row from row_data
+                # (including the tuples with icons).
+                checked_rows.append(self.row_data[row_index])
+            else:
+                # Fallback: assembling from recycle_data
+                row_data = []
+
+                for data in self.recycle_data:
+                    if idx in data["range"]:
+                        row_data.append(data["text"])
+
+                if row_data:
+                    checked_rows.append(row_data)
+
+        return checked_rows
+
+
+class TablePagination(BoxLayout):
+    """Pagination Container."""
+
+    table_data = ObjectProperty()
+    """
+    :class:`~TableData` class.
+
+    :attr:`table_data` is an :class:`~kivy.properties.ObjectProperty`
+    and defaults to `None`.
+    """
+
+
+class MDDataTable(ThemableBehavior, CommonElevationBehavior, AnchorLayout):
+    """
+    Datatable class.
+
+    For more information, see in the
+    :class:`~kivymd.theming.ThemableBehavior` and
+    :class:`~kivy.uix.anchorlayout.AnchorLayout` classes documentation.
+
+    :Events:
+        :attr:`on_row_press`
+            Called when a table row is clicked.
+        :attr:`on_check_press`
+            Called when the check box in the table row is checked.
+
+    .. rubric:: Use events as follows
+
+    .. code-block:: python
+
+        from kivy.metrics import dp
+
+        from kivymd.app import MDApp
+        from kivymd.uix.datatables import MDDataTable
+        from kivymd.uix.screen import MDScreen
+
+
+        class Example(MDApp):
+            def build(self):
+                self.data_tables = MDDataTable(
+                    use_pagination=True,
+                    check=True,
+                    column_data=[
+                        ("No.", dp(30)),
+                        ("Status", dp(30)),
+                        ("Signal Name", dp(60), self.sort_on_signal),
+                        ("Severity", dp(30)),
+                        ("Stage", dp(30)),
+                        ("Schedule", dp(30), self.sort_on_schedule),
+                        ("Team Lead", dp(30), self.sort_on_team),
+                    ],
+                    row_data=[
+                        (
+                            "1",
+                            ("alert", [255 / 256, 165 / 256, 0, 1], "No Signal"),
+                            "Astrid: NE shared managed",
+                            "Medium",
+                            "Triaged",
+                            "0:33",
+                            "Chase Nguyen",
+                        ),
+                        (
+                            "2",
+                            ("alert-circle", [1, 0, 0, 1], "Offline"),
+                            "Cosmo: prod shared ares",
+                            "Huge",
+                            "Triaged",
+                            "0:39",
+                            "Brie Furman",
+                        ),
+                        (
+                            "3",
+                            (
+                                "checkbox-marked-circle",
+                                [39 / 256, 174 / 256, 96 / 256, 1],
+                                "Online",
+                            ),
+                            "Phoenix: prod shared lyra-lists",
+                            "Minor",
+                            "Not Triaged",
+                            "3:12",
+                            "Jeremy lake",
+                        ),
+                        (
+                            "4",
+                            (
+                                "checkbox-marked-circle",
+                                [39 / 256, 174 / 256, 96 / 256, 1],
+                                "Online",
+                            ),
+                            "Sirius: NW prod shared locations",
+                            "Negligible",
+                            "Triaged",
+                            "13:18",
+                            "Angelica Howards",
+                        ),
+                        (
+                            "5",
+                            (
+                                "checkbox-marked-circle",
+                                [39 / 256, 174 / 256, 96 / 256, 1],
+                                "Online",
+                            ),
+                            "Sirius: prod independent account",
+                            "Negligible",
+                            "Triaged",
+                            "22:06",
+                            "Diane Okuma",
+                        ),
+                    ],
+                    sorted_on="Schedule",
+                    sorted_order="ASC",
+                    elevation=2,
+                )
+                self.data_tables.bind(on_row_press=self.on_row_press)
+                self.data_tables.bind(on_check_press=self.on_check_press)
+                screen = MDScreen()
+                screen.add_widget(self.data_tables)
+                return screen
+
+            def on_row_press(self, instance_table, instance_row):
+                '''Called when a table row is clicked.'''
+
+                print(instance_table, instance_row)
+
+            def on_check_press(self, instance_table, current_row):
+                '''Called when the check box in the table row is checked.'''
+
+                print(instance_table, current_row)
+
+            # Sorting Methods:
+            # since the https://github.com/kivymd/KivyMD/pull/914 request, the
+            # sorting method requires you to sort out the indexes of each data value
+            # for the support of selections.
+            #
+            # The most common method to do this is with the use of the builtin function
+            # zip and enumerate, see the example below for more info.
+            #
+            # The result given by these funcitons must be a list in the format of
+            # [Indexes, Sorted_Row_Data]
+
+            def sort_on_signal(self, data):
+                return zip(*sorted(enumerate(data), key=lambda l: l[1][2]))
+
+            def sort_on_schedule(self, data):
+                return zip(
+                    *sorted(
+                        enumerate(data),
+                        key=lambda l: sum(
+                            [
+                                int(l[1][-2].split(":")[0]) * 60,
+                                int(l[1][-2].split(":")[1]),
+                            ]
+                        ),
+                    )
+                )
+
+            def sort_on_team(self, data):
+                return zip(*sorted(enumerate(data), key=lambda l: l[1][-1]))
+
+
+        Example().run()
+    """
+
+    column_data = ListProperty()
+    """
+    Data for header columns.
+
+    .. tabs::
+
+        .. tab:: Imperative python style
+
+            .. code-block:: python
+
+                from kivy.metrics import dp
+
+                from kivymd.app import MDApp
+                from kivymd.uix.datatables import MDDataTable
+                from kivy.uix.anchorlayout import AnchorLayout
+
+
+                class Example(MDApp):
+                    def build(self):
+                        self.theme_cls.theme_style = "Dark"
+                        self.theme_cls.primary_palette = "Orange"
+
+                        layout = AnchorLayout()
+                        self.data_tables = MDDataTable(
+                            size_hint=(0.7, 0.6),
+                            use_pagination=True,
+                            check=True,
+                            # name column, width column, sorting function column(optional), custom tooltip
+                            column_data=[
+                                ("No.", dp(30), None, "Custom tooltip"),
+                                ("Status", dp(30)),
+                                ("Signal Name", dp(60)),
+                                ("Severity", dp(30)),
+                                ("Stage", dp(30)),
+                                ("Schedule", dp(30), lambda *args: print("Sorted using Schedule")),
+                                ("Team Lead", dp(30)),
+                            ],
+                        )
+                        layout.add_widget(self.data_tables)
+                        return layout
+
+
+                Example().run()
+
+        .. tab:: Declarative python style
+
+            .. code-block:: python
+
+                from kivy.metrics import dp
+
+                from kivymd.app import MDApp
+                from kivymd.uix.anchorlayout import MDAnchorLayout
+                from kivymd.uix.datatables import MDDataTable
+
+
+                class Example(MDApp):
+                    def build(self):
+                        self.theme_cls.theme_style = "Dark"
+                        self.theme_cls.primary_palette = "Orange"
+                        return MDAnchorLayout(
+                            MDDataTable(
+                                size_hint=(0.7, 0.6),
+                                use_pagination=True,
+                                check=True,
+                                # name column, width column, sorting function column(optional)
+                                column_data=[
+                                    ("No.", dp(30)),
+                                    ("Status", dp(30)),
+                                    ("Signal Name", dp(60)),
+                                    ("Severity", dp(30)),
+                                    ("Stage", dp(30)),
+                                    ("Schedule", dp(30),
+                                     lambda *args: print("Sorted using Schedule")),
+                                    ("Team Lead", dp(30)),
+                                ],
+                            )
+                        )
+
+
+                Example().run()
+
+    .. image:: https://github.com/HeaTTheatR/KivyMD-data/raw/master/gallery/kivymddoc/data-tables-column-data.png
+        :align: center
+
+    :attr:`column_data` is an :class:`~kivy.properties.ListProperty`
+    and defaults to `[]`.
+
+    .. note:: The functions which will be called for sorting must accept a data
+        argument and return the sorted data. Incoming data format will be
+        similar to the provided row_data except that it'll be all list instead
+        of tuple like below. Any icon provided initially will also be there in
+        this data so handle accordingly.
+
+        .. code-block:: python
+
+            [
+                [
+                    "1",
+                    ["icon", "No Signal"],
+                    "Astrid: NE shared managed",
+                    "Medium",
+                    "Triaged",
+                    "0:33",
+                    "Chase Nguyen",
+                ],
+                [
+                    "2",
+                    "Offline",
+                    "Cosmo: prod shared ares",
+                    "Huge",
+                    "Triaged",
+                    "0:39",
+                    "Brie Furman",
+                ],
+                [
+                    "3",
+                    "Online",
+                    "Phoenix: prod shared lyra-lists",
+                    "Minor",
+                    "Not Triaged",
+                    "3:12",
+                    "Jeremy lake",
+                ],
+                [
+                    "4",
+                    "Online",
+                    "Sirius: NW prod shared locations",
+                    "Negligible",
+                    "Triaged",
+                    "13:18",
+                    "Angelica Howards",
+                ],
+                [
+                    "5",
+                    "Online",
+                    "Sirius: prod independent account",
+                    "Negligible",
+                    "Triaged",
+                    "22:06",
+                    "Diane Okuma",
+                ],
+            ]
+
+        You must sort inner lists in ascending order and return the sorted data
+        in the same format.
+    """
+
+    row_data = ListProperty()
+    """
+    Data for rows. To add icon in addition to a row data, include a tuple with
+    This property stores the row data used to display each row in the DataTable
+    To show an icon inside a column in a row, use the folowing format in the
+    row's columns.
+
+    Format:
+
+    `("MDicon-name", [icon color in rgba], "Column Value")`
+
+    Example:
+
+    .. code-block:: python
+
+        [...]
+        row_data = [
+
+            # row 1
+            [
+                "value 1",
+                "value 2",
+                # the third value will have an icon inside the box
+                ["home", [128/255, 48/255, 76/255, 1], "Offie" ]
+            ],
+
+            # row 2
+            [
+                "value 1",
+                "value 2",
+                # the third value will have an icon inside the box
+                ["git", [1, 0.1, 0.1, 1], "Git Repo" ]
+            ]
+        ]
+
+    For a more complex example see below.
+
+    .. code-block:: python
+
+        from kivy.metrics import dp
+        from kivy.uix.anchorlayout import AnchorLayout
+
+        from kivymd.app import MDApp
+        from kivymd.uix.datatables import MDDataTable
+
+
+        class Example(MDApp):
+            def build(self):
+                self.theme_cls.theme_style = "Dark"
+                self.theme_cls.primary_palette = "Orange"
+
+                layout = AnchorLayout()
+                data_tables = MDDataTable(
+                    size_hint=(0.9, 0.6),
+                    column_data=[
+                        ("Column 1", dp(30)),
+                        ("Column 2", dp(30)),
+                        ("Column 3", dp(50), self.sort_on_col_3),
+                        ("Column 4", dp(30)),
+                        ("Column 5", dp(30)),
+                        ("Column 6", dp(30)),
+                        ("Column 7", dp(30), self.sort_on_col_2),
+                    ],
+                    row_data=[
+                        # The number of elements must match the length
+                        # of the `column_data` list.
+                        (
+                            "1",
+                            ("alert", [255 / 256, 165 / 256, 0, 1], "No Signal"),
+                            "Astrid: NE shared managed",
+                            "Medium",
+                            "Triaged",
+                            "0:33",
+                            "Chase Nguyen",
+                        ),
+                        (
+                            "2",
+                            ("alert-circle", [1, 0, 0, 1], "Offline"),
+                            "Cosmo: prod shared ares",
+                            "Huge",
+                            "Triaged",
+                            "0:39",
+                            "Brie Furman",
+                        ),
+                        (
+                            "3",
+                            (
+                                "checkbox-marked-circle",
+                                [39 / 256, 174 / 256, 96 / 256, 1],
+                                "Online",
+                            ),
+                            "Phoenix: prod shared lyra-lists",
+                            "Minor",
+                            "Not Triaged",
+                            "3:12",
+                            "Jeremy lake",
+                        ),
+                        (
+                            "4",
+                            (
+                                "checkbox-marked-circle",
+                                [39 / 256, 174 / 256, 96 / 256, 1],
+                                "Online",
+                            ),
+                            "Sirius: NW prod shared locations",
+                            "Negligible",
+                            "Triaged",
+                            "13:18",
+                            "Angelica Howards",
+                        ),
+                        (
+                            "5",
+                            (
+                                "checkbox-marked-circle",
+                                [39 / 256, 174 / 256, 96 / 256, 1],
+                                "Online",
+                            ),
+                            "Sirius: prod independent account",
+                            "Negligible",
+                            "Triaged",
+                            "22:06",
+                            "Diane Okuma",
+                        ),
+                    ],
+                )
+                layout.add_widget(data_tables)
+                return layout
+
+            def sort_on_col_3(self, data):
+                return zip(
+                    *sorted(
+                        enumerate(data),
+                        key=lambda l: l[1][3]
+                    )
+                )
+
+            def sort_on_col_2(self, data):
+                return zip(
+                    *sorted(
+                        enumerate(data),
+                        key=lambda l: l[1][-1]
+                    )
+                )
+
+        Example().run()
+
+
+    .. image:: https://github.com/HeaTTheatR/KivyMD-data/raw/master/gallery/kivymddoc/data-tables-row-data.png
+        :align: center
+
+    Custom widgets in cells.
+
+    .. code-block:: python
+
+        from kivy.metrics import dp
+        from kivy.uix.anchorlayout import AnchorLayout
+
+        from kivymd.app import MDApp
+        from kivymd.uix.button import MDButton, MDButtonText
+        from kivymd.uix.chip import MDChip, MDChipText
+        from kivymd.uix.datatables import MDDataTable
+
+
+        class MyMDChip(MDChip):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.widgets = [
+                    MDChipText(
+                        text="Chip"
+                    ),
+                ]
+
+
+        class MyMDButton(MDButton):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.widgets = [
+                    MDButtonText(
+                        text="Button"
+                    )
+                ]
+
+
+        class Example(MDApp):
+            def build(self):
+                self.theme_cls.theme_style = "Dark"
+                self.theme_cls.primary_palette = "Orange"
+
+                layout = AnchorLayout()
+
+                def on_activate(row_index: int, row_data: list) -> None:
+                    '''
+                    Callback function for the switch widget in the table row.
+
+                    Called when the MDSwitch in a table row is toggled.
+
+                    :param row_index: Index of the row in the table (0-based)
+                    :param row_data: List of data values for the row (all columns)
+
+                    Example:
+                        When a switch is toggled in the "Status" column:
+                        >>> on_activate(0, ['1', 'John Doe', {'viewclass': 'MDSwitch', ...}])
+                        Activate row 0: ['1', 'John Doe', {'viewclass': 'MDSwitch', ...}]
+                    '''
+
+                    print(f"Activate row {row_index}: {row_data}")
+
+                def on_press(row_index: int, row_data: list) -> None:
+                    '''
+                    Callback function for button widgets in the table row.
+                    Called when a button (e.g., MyMDButton) in a table row is pressed/released.
+                    '''
+
+                    print(f"Press button {row_index}: {row_data}")
+
+                def on_release(row_index: int, row_data: list) -> None:
+                    '''
+                    Callback function for check widgets in the table row.
+                    Called when a button (e.g., MyMDChip) in a table row is pressed/released.
+                    '''
+
+                    print(f"Press check {row_index}: {row_data}")
+
+                data_tables = MDDataTable(
+                    size_hint=(0.95, 0.8),
+                    use_pagination=True,
+                    rows_num=5,
+                    check=True,
+                    column_data=[
+                        ("ID", dp(40)),
+                        ("Name", dp(40)),
+                        ("Status", dp(40)),
+                    ],
+                    row_data=[
+                        (
+                            "1",
+                            "John Doe",
+                            {"viewclass": "MyMDButton", "on_press": on_press},
+                        ),
+                        (
+                            "2",
+                            "Jane Smith",
+                            {"viewclass": "MDSwitch", "on_active": on_activate},
+                        ),
+                        (
+                            "3",
+                            "Nicol Andersson",
+                            {"viewclass": "MyMDChip", "on_release": on_release},
+                        ),
+                    ]
+                )
+
+                layout.add_widget(data_tables)
+                return layout
+
+
+        if __name__ == "__main__":
+            Example().run()
+
+    .. image:: https://github.com/HeaTTheatR/KivyMD-data/raw/master/gallery/kivymddoc/data-tables-custom-widgets.png
+        :align: center
+
+    Custom widgets with children in cells.
+
+    .. code-block:: python
+
+        from kivy.metrics import dp
+        from kivy.properties import StringProperty
+        from kivy.uix.anchorlayout import AnchorLayout
+
+        from kivymd.app import MDApp
+        from kivymd.uix.button import MDButton, MDButtonText
+        from kivymd.uix.chip import MDChip, MDChipText
+        from kivymd.uix.datatables import MDDataTable
+        from kivymd.uix.boxlayout import MDBoxLayout  # NOQA
+        from kivymd.uix.button import MDIconButton  # NOQA
+
+
+        class MyMDChip(MDChip):
+            text = StringProperty()
+
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+
+            def on_text(self, instance, value):
+                self.widgets = [
+                    MDChipText(
+                        text=value
+                    ),
+                ]
+
+
+        class MyMDButton(MDButton):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.widgets = [
+                    MDButtonText(
+                        text="Button"
+                    )
+                ]
+
+
+        class Example(MDApp):
+            def build(self):
+                self.theme_cls.theme_style = "Dark"
+                self.theme_cls.primary_palette = "Orange"
+
+                layout = AnchorLayout()
+
+                def on_activate(row_index: int, row_data: list) -> None:
+                    print(f"Activate row {row_index}: {row_data}")
+
+                def on_press(row_index: int, row_data: list) -> None:
+                    print(f"Press button {row_index}: {row_data}")
+
+                def on_release(row_index: int, row_data: list) -> None:
+                    print(f"Release chip {row_index}: {row_data}")
+
+                def on_edit(row_index: int, row_data: list) -> None:
+                    print(f"Edit row {row_index}: {row_data}")
+
+                def on_delete(row_index: int, row_data: list) -> None:
+                    print(f"Delete row {row_index}: {row_data}")
+
+                def on_view(row_index: int, row_data: list) -> None:
+                    print(f"View row {row_index}: {row_data}")
+
+                data_tables = MDDataTable(
+                    size_hint=(0.95, 0.8),
+                    use_pagination=True,
+                    rows_num=5,
+                    check=True,
+                    column_data=[
+                        ("ID", dp(30)),
+                        ("Name", dp(40)),
+                        ("Status", dp(40)),
+                        ("Actions", dp(40)),
+                    ],
+                    row_data=[
+                        (
+                            "1",
+                            "John Doe",
+                            {"viewclass": "MyMDButton", "on_press": on_press},
+                            {
+                                "viewclass": "MDBoxLayout",
+                                "spacing": dp(4),
+                                "children": [
+                                    {
+                                        "viewclass": "MDIconButton",
+                                        "icon": "eye",
+                                        "on_release": on_view,
+                                    },
+                                    {
+                                        "viewclass": "MDIconButton",
+                                        "icon": "pencil",
+                                        "on_release": on_edit,
+                                    },
+                                    {
+                                        "viewclass": "MDIconButton",
+                                        "icon": "delete",
+                                        "on_release": on_delete,
+                                    },
+                                ]
+                            },
+                        ),
+                        (
+                            "2",
+                            "Jane Smith",
+                            {"viewclass": "MDSwitch", "on_active": on_activate},
+                            {
+                                "viewclass": "MDBoxLayout",
+                                "spacing": dp(4),
+                                "children": [
+                                    {
+                                        "viewclass": "MDIconButton",
+                                        "icon": "eye",
+                                        "on_release": on_view,
+                                    },
+                                    {
+                                        "viewclass": "MDIconButton",
+                                        "icon": "pencil",
+                                        "on_release": on_edit,
+                                    },
+                                    {
+                                        "viewclass": "MDIconButton",
+                                        "icon": "delete",
+                                        "on_release": on_delete,
+                                    },
+                                ]
+                            },
+                        ),
+                        (
+                            "3",
+                            "Nicol Andersson",
+                            {"viewclass": "MyMDChip", "text": "Delete", "on_release": on_release},
+                            {
+                                "viewclass": "MDBoxLayout",
+                                "spacing": dp(4),
+                                "children": [
+                                    {
+                                        "viewclass": "MDIconButton",
+                                        "icon": "eye",
+                                        "on_release": on_view,
+                                    },
+                                    {
+                                        "viewclass": "MDIconButton",
+                                        "icon": "pencil",
+                                        "on_release": on_edit,
+                                    },
+                                    {
+                                        "viewclass": "MDIconButton",
+                                        "icon": "delete",
+                                        "on_release": on_delete,
+                                    },
+                                ]
+                            },
+                        ),
+                        (
+                            "4",
+                            "Alice Brown",
+                            {
+                                "viewclass": "MDBoxLayout",
+                                "spacing": dp(4),
+                                "children": [
+                                    {
+                                        "viewclass": "MyMDChip",
+                                        "text": "Active",
+                                    },
+                                    {
+                                        "viewclass": "MDIconButton",
+                                        "icon": "information",
+                                        "on_release": on_view,
+                                    },
+                                ]
+                            },
+                            {
+                                "viewclass": "MDBoxLayout",
+                                "spacing": dp(4),
+                                "children": [
+                                    {
+                                        "viewclass": "MDIconButton",
+                                        "icon": "pencil",
+                                        "on_release": on_edit,
+                                    },
+                                    {
+                                        "viewclass": "MDIconButton",
+                                        "icon": "delete",
+                                        "on_release": on_delete,
+                                    },
+                                ]
+                            },
+                        ),
+                        (
+                            "5",
+                            "Bob Johnson",
+                            {
+                                "viewclass": "MDBoxLayout",
+                                "spacing": dp(4),
+                                "children": [
+                                    {
+                                        "viewclass": "MyMDChip",
+                                        "text": "Pending",
+                                    },
+                                    {
+                                        "viewclass": "MDIconButton",
+                                        "icon": "information",
+                                        "on_release": on_view,
+                                    },
+                                ]
+                            },
+                            {
+                                "viewclass": "MDBoxLayout",
+                                "spacing": dp(4),
+                                "children": [
+                                    {
+                                        "viewclass": "MDIconButton",
+                                        "icon": "pencil",
+                                        "on_release": on_edit,
+                                    },
+                                    {
+                                        "viewclass": "MDIconButton",
+                                        "icon": "delete",
+                                        "on_release": on_delete,
+                                    },
+                                ]
+                            },
+                        ),
+                    ]
+                )
+
+                layout.add_widget(data_tables)
+                return layout
+
+
+        if __name__ == "__main__":
+            Example().run()
+
+    .. image:: https://github.com/HeaTTheatR/KivyMD-data/raw/master/gallery/kivymddoc/data-tables-custom-widgets-children.png
+        :align: center
+
+    :attr:`row_data` is an :class:`~kivy.properties.ListProperty`
+    and defaults to `[]`.
+    """
+
+    sorted_on = StringProperty()
+    """
+    Column name upon which the data is already sorted.
+
+    If the table data is showing an already sorted data then this can be used
+    to indicate upon which column the data is sorted.
+
+    :attr:`sorted_on` is an :class:`~kivy.properties.StringProperty`
+    and defaults to `''`.
+    """
+
+    sorted_order = OptionProperty("ASC", options=["ASC", "DSC"])
+    """
+    Order of already sorted data. Must be one of `'ASC'` for ascending or
+    `'DSC'` for descending order.
+
+    :attr:`sorted_order` is an :class:`~kivy.properties.OptionProperty`
+    and defaults to `'ASC'`.
+    """
+
+    check = BooleanProperty(False)
+    """
+    Use or not use checkboxes for rows.
+
+    .. image:: https://github.com/HeaTTheatR/KivyMD-data/raw/master/gallery/kivymddoc/data-tables-check.png
+        :align: center
+
+    :attr:`check` is an :class:`~kivy.properties.BooleanProperty`
+    and defaults to `False`.
+    """
+
+    use_pagination = BooleanProperty(False)
+    """
+    Use page pagination for table or not.
+
+    .. code-block:: python
+
+        from kivy.metrics import dp
+        from kivy.uix.anchorlayout import AnchorLayout
+
+        from kivymd.app import MDApp
+        from kivymd.uix.datatables import MDDataTable
+
+
+        class Example(MDApp):
+            def build(self):
+                self.theme_cls.theme_style = "Dark"
+                self.theme_cls.primary_palette = "Orange"
+
+                layout = AnchorLayout()
+                data_tables = MDDataTable(
+                    size_hint=(0.9, 0.6),
+                    use_pagination=True,
+                    column_data=[
+                        ("No.", dp(30)),
+                        ("Column 1", dp(30)),
+                        ("Column 2", dp(30)),
+                        ("Column 3", dp(30)),
+                        ("Column 4", dp(30)),
+                        ("Column 5", dp(30)),
+                    ],
+                    row_data=[
+                        (f"{i + 1}", "1", "2", "3", "4", "5") for i in range(50)
+                    ],
+                )
+                layout.add_widget(data_tables)
+                return layout
+
+
+        Example().run()
+
+    .. image:: https://github.com/HeaTTheatR/KivyMD-data/raw/master/gallery/kivymddoc/data-tables-use-pagination.png
+        :align: center
+
+    :attr:`use_pagination` is an :class:`~kivy.properties.BooleanProperty`
+    and defaults to `False`.
+    """
+
+    radius = VariableListProperty([dp(6)], length=4)
+    """
+    See :attr:`kivymd.uix.behaviors.elevation.CommonElevationBehavior.shadow_radius`
+    attribute.
+
+    .. versionadded:: 1.2.0
+
+    :attr:`radius` is an :class:`~kivy.properties.VariableListProperty`
+    and defaults to `[dp(6), dp(6), dp(6), dp(6)]`.
+    """
+
+    rows_num = NumericProperty(5)
+    """
+    The number of rows displayed on one page of the table.
+
+    .. image:: https://github.com/HeaTTheatR/KivyMD-data/raw/master/gallery/kivymddoc/data-tables-use-pagination-rows-num.png
+        :align: center
+
+    :attr:`rows_num` is an :class:`~kivy.properties.NumericProperty`
+    and defaults to `10`.
+    """
+
+    pagination_menu_pos = OptionProperty(
+        "top", options=["center", "auto", "top"]
+    )
+    """
+    Menu position for selecting the number of displayed rows.
+    Available options are `'center'`, `'auto'`.
+
+    .. rubric:: Center
+
+    .. image:: https://github.com/HeaTTheatR/KivyMD-data/raw/master/gallery/kivymddoc/data-tables-menu-pos-top.png
+        :align: center
+
+    .. rubric:: Auto
+
+    .. image:: https://github.com/HeaTTheatR/KivyMD-data/raw/master/gallery/kivymddoc/data-tables-menu-pos-auto.png
+        :align: center
+
+    :attr:`pagination_menu_pos` is an :class:`~kivy.properties.OptionProperty`
+    and defaults to `'center'`.
+    """
+
+    pagination_menu_height = NumericProperty("140dp")
+    """
+    Menu height for selecting the number of displayed rows.
+
+    .. rubric:: 240dp
+
+    .. image:: https://github.com/HeaTTheatR/KivyMD-data/raw/master/gallery/kivymddoc/data-tables-menu-height-240.png
+        :align: center
+
+    :attr:`pagination_menu_height` is an :class:`~kivy.properties.NumericProperty`
+    and defaults to `'140dp'`.
+    """
+
+    background_color = ColorProperty(None)
+    """
+    Background color in the format (r, g, b, a) or string format.
+    See :attr:`~kivy.uix.modalview.ModalView.background_color`.
+
+    Use markup strings
+    ------------------
+
+    .. code-block:: python
+
+        from kivy.metrics import dp
+        from kivy.uix.anchorlayout import AnchorLayout
+
+        from kivymd.app import MDApp
+        from kivymd.uix.datatables import MDDataTable
+
+
+        class Example(MDApp):
+            def build(self):
+                self.theme_cls.theme_style = "Dark"
+                self.theme_cls.primary_palette = "Orange"
+
+                layout = AnchorLayout()
+                data_tables = MDDataTable(
+                    size_hint=(0.9, 0.6),
+                    use_pagination=True,
+                    column_data=[
+                        ("No.", dp(30)),
+                        ("Column 1", dp(30)),
+                        ("[color=#52251B]Column 2[/color]", dp(30)),
+                        ("Column 3", dp(30)),
+                        ("[size=24][color=#C042B8]Column 4[/color][/size]", dp(30)),
+                        ("Column 5", dp(30)),
+                    ],
+                    row_data=[
+                        (
+                            f"{i + 1}",
+                            "[color=#297B50]1[/color]",
+                            "[color=#C552A1]2[/color]",
+                            "[color=#6C9331]3[/color]",
+                            "4",
+                            "5",
+                        )
+                        for i in range(50)
+                    ],
+                )
+                layout.add_widget(data_tables)
+                return layout
+
+
+        Example().run()
+
+    .. image:: https://github.com/HeaTTheatR/KivyMD-data/raw/master/gallery/kivymddoc/datatables-use-markup-strings.png
+        :align: center
+
+    :attr:`background_color` is a :class:`~kivy.properties.ColorProperty` and
+    defaults to `None`.
+    """
+
+    background_color_header = ColorProperty(None)
+    """
+    Background color in the format (r, g, b, a) or string format for
+    :class:`~TableHeader` class.
+
+    .. versionadded:: 1.0.0
+
+    .. code-block:: python
+
+        self.data_tables = MDDataTable(
+            ...,
+            background_color_header="#65275d",
+        )
+
+    .. image:: https://github.com/HeaTTheatR/KivyMD-data/raw/master/gallery/kivymddoc/data-tables-background-color-header.png
+        :align: center
+
+    :attr:`background_color_header` is a :class:`~kivy.properties.ColorProperty` and
+    defaults to `None`.
+    """
+
+    background_color_cell = ColorProperty(None)
+    """
+    Background color in the format (r, g, b, a) or string format for
+    :class:`~CellRow` class.
+
+    .. versionadded:: 1.0.0
+
+    .. code-block:: python
+
+        self.data_tables = MDDataTable(
+            ...,
+            background_color_header="#65275d",
+            background_color_cell="#451938",
+        )
+
+    .. image:: https://github.com/HeaTTheatR/KivyMD-data/raw/master/gallery/kivymddoc/data-tables-background-color-cell.png
+        :align: center
+
+    :attr:`background_color_cell` is a :class:`~kivy.properties.ColorProperty`
+    and defaults to `None`.
+    """
+
+    background_color_selected_cell = ColorProperty(None)
+    """
+    Background selected color in the format (r, g, b, a) or string format for
+    :class:`~CellRow` class.
+
+    .. versionadded:: 1.0.0
+
+    .. code-block:: python
+
+        self.data_tables = MDDataTable(
+            ...,
+            background_color_header="#65275d",
+            background_color_cell="#451938",
+            background_color_selected_cell="e4514f",
+        )
+
+    .. image:: https://github.com/HeaTTheatR/KivyMD-data/raw/master/gallery/kivymddoc/data-tables-background-color-selected-cell.png
+        :align: center
+
+    :attr:`background_color_selected_cell` is a :class:`~kivy.properties.ColorProperty` and
+    defaults to `None`.
+    """
+
+    effect_cls = ObjectProperty(StiffScrollEffect)
+    """
+    Effect class. See ``kivy/effects`` package for more information.
+
+    .. versionadded:: 1.0.0
+
+    :attr:`effect_cls` is an :class:`~kivy.properties.ObjectProperty`
+    and defaults to :class:`~kivymd.effects.stiffscroll.StiffScrollEffect`.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+        self.header = TableHeader(
+            column_data=self.column_data,
+            sorted_on=self.sorted_on,
+            sorted_order=self.sorted_order,
+            background_color_header=self.background_color_header,
+        )
+        self.table_data = TableData(
+            self.header,
+            row_data=self.row_data,
+            check=self.check,
+            rows_num=self.rows_num,
+            _parent=self,
+        )
+        self.register_event_type("on_row_press")
+        self.register_event_type("on_check_press")
+        self.pagination = TablePagination(table_data=self.table_data)
+        self.table_data.pagination = self.pagination
+        self.header.table_data = self.table_data
+        self.table_data.fbind("scroll_x", self._scroll_with_header)
+        self.ids.container.add_widget(self.header)
+        self.ids.container.add_widget(self.table_data)
+
+        if self.use_pagination:
+            self.ids.container.add_widget(self.pagination)
+            Clock.schedule_once(self.create_pagination_menu, 0.5)
+
+        self.bind(row_data=self.update_row_data)
+
+    def set_row_checked(self, row_index: int, checked: bool) -> None:
+        """
+        Sets the checkbox state for a specific row by its index.
+
+        .. versionadded:: 2.0.0
+
+        :param row_index: Row index in `row_data`
+        :param checked: True - check the row, False - uncheck the row
+
+        .. code-block:: python
+
+            from kivy.metrics import dp
+            from kivy.lang import Builder
+            from kivy.properties import ObjectProperty
+
+            from kivymd.app import MDApp
+            from kivymd.uix.datatables import MDDataTable
+            from kivymd.uix.screen import MDScreen
+            from kivymd.uix.anchorlayout import MDAnchorLayout
+
+            KV = '''
+            <TableScreen>
+                tablebox: tablebox
+                md_bg_color: self.theme_cls.backgroundColor
+
+                MainCard:
+                    pos_hint: {"center_x": .5, "center_y": .55}
+
+                    TableBox:
+                        id: tablebox
+
+                MDButton:
+                    pos_hint: {"center_x": .5, "center_y": .1}
+                    on_press: root.check_row_0()
+
+                    MDButtonText:
+                        text: "Check row 0"
+
+
+            <TableBox>
+
+
+            <MainCard>
+                size_hint: None, None
+                size: "400dp", "450dp"
+                pos_hint: {"center_x": .5, "center_y": .5}
+                elevation: 3
+                padding: "10dp"
+                spacing: "25dp"
+            '''
+
+            Builder.load_string(KV)
+
+
+            class MainCard(MDScreen): ...
+
+
+            class TableBox(MDAnchorLayout):
+                table: MDDataTable
+
+                def add_table(
+                    self,
+                    column_fields,
+                    table_data,
+                    refresh=False,
+                    use_pagination=True,
+                    use_check=True,
+                    rows_num=10,
+                ):
+                    if refresh:
+                        self.clear_widgets()
+
+                    data_table = MDDataTable(
+                        use_pagination=use_pagination,
+                        check=use_check,
+                        rows_num=rows_num,
+                        column_data=column_fields,
+                        row_data=table_data,
+                    )
+
+                    self.table = data_table
+                    self.add_widget(data_table)
+
+
+            class TableScreen(MDScreen):
+                tablebox = ObjectProperty(None)
+
+                def __init__(self, **kwargs):
+                    super().__init__(**kwargs)
+                    col_fields = ["field1", "field2"]
+                    col_data = [(f, dp(30)) for f in col_fields]
+                    table_data = [(f"col1_{i}", f"col2_{i}") for i in range(30)]
+                    self.tablebox.add_table(col_data, table_data)
+
+                def check_row_0(self):
+                    '''Select the checkbox for row 0.'''
+
+                    self.tablebox.table.set_row_checked(0, True)
+
+
+            class MainApp(MDApp):
+                def build(self):
+                    self.theme_cls.theme_style = "Dark"
+                    return TableScreen()
+
+
+            if __name__ == "__main__":
+                MainApp().run()
+
+        .. image:: https://github.com/HeaTTheatR/KivyMD-data/raw/master/gallery/kivymddoc/datatables-use-set_row_checked.gif
+            :align: center
+
+        You can select multiple rows at once:
+
+        .. code-block:: python
+
+            def check_row_0_4(self):
+                '''Select the checkbox for row 0-4.'''
+
+                self.tablebox.table.set_rows_checked([0, 1, 2, 3, 4], True)
+
+        .. image:: https://github.com/HeaTTheatR/KivyMD-data/raw/master/gallery/kivymddoc/datatables-use-set_row_checked-multiple.gif
+            :align: center
+
+        Or toggle the selected row:
+
+        .. code-block:: python
+
+            def toggle_row_5(self):
+                '''Toggle the checkbox for row 5.'''
+
+                self.tablebox.table.toggle_row_checked(5)
+
+        .. image:: https://github.com/HeaTTheatR/KivyMD-data/raw/master/gallery/kivymddoc/datatables-use-set_row_checke_toggle.gif
+            :align: center
+        """
+
+        if not self.check:
+            return
+        if row_index < 0 or row_index >= len(self.row_data):
+            raise IndexError(f"Row index {row_index} is out of range")
+
+        first_cell_index = row_index * self.table_data.total_col_headings
+
+        if checked:
+            if first_cell_index not in self.table_data.checked_row_indices:
+                self.table_data.checked_row_indices.append(first_cell_index)
+
+            page = row_index // self.table_data.rows_num
+
+            if page not in self.table_data.current_selection_check:
+                self.table_data.current_selection_check[page] = []
+            if (
+                first_cell_index
+                not in self.table_data.current_selection_check[page]
+            ):
+                self.table_data.current_selection_check[page].append(
+                    first_cell_index
+                )
+        else:
+            if first_cell_index in self.table_data.checked_row_indices:
+                self.table_data.checked_row_indices.remove(first_cell_index)
+
+            page = row_index // self.table_data.rows_num
+
+            if page in self.table_data.current_selection_check:
+                if (
+                    first_cell_index
+                    in self.table_data.current_selection_check[page]
+                ):
+                    self.table_data.current_selection_check[page].remove(
+                        first_cell_index
+                    )
+
+        self.table_data._update_content_cells_rows()
+        self.table_data._update_cell_selection_state()
+
+    def set_rows_checked(self, row_indices: list, checked: bool) -> None:
+        """
+        Sets the checkbox state for multiple rows.
+
+        .. versionadded:: 2.0.0
+
+        :param row_indices: List of row indices in `row_data`
+        :param checked: True - check the rows, False - uncheck the rows
+        """
+
+        for row_index in row_indices:
+            self.set_row_checked(row_index, checked)
+
+    def set_all_rows_checked(self, checked: bool) -> None:
+        """
+        Sets the state of all checkboxes in the table.
+
+        :param checked: True - check all rows, False - uncheck all rows
+        """
+
+        if not self.check:
+            return
+
+        state = "down" if checked else "normal"
+        self.table_data.select_all(state)
+        self.table_data.table_header.ids.check.state = state
+
+    def toggle_row_checked(self, row_index: int) -> None:
+        """
+        Toggles the checkbox state for a specific row.
+
+        .. versionadded:: 2.0.0
+
+        :param row_index: Row index in `row_data`
+        """
+
+        if row_index < 0 or row_index >= len(self.row_data):
+            raise IndexError(f"Row index {row_index} is out of range")
+
+        first_cell_index = row_index * self.table_data.total_col_headings
+        is_checked = first_cell_index in self.table_data.checked_row_indices
+        self.set_row_checked(row_index, not is_checked)
+
+    def is_row_checked(self, row_index: int) -> bool:
+        """
+        Checks if a specific row is checked.
+
+        .. versionadded:: 2.0.0
+
+        :param row_index: Row index in `row_data`
+        :return: True if the row is checked, False otherwise
+        """
+
+        if row_index < 0 or row_index >= len(self.row_data):
+            raise IndexError(f"Row index {row_index} is out of range")
+
+        first_cell_index = row_index * self.table_data.total_col_headings
+
+        return first_cell_index in self.table_data.checked_row_indices
+
+    def get_checked_row_indices(self) -> list:
+        """
+        Returns a list of indices of all checked rows.
+
+        :return: List of checked row indices
+        """
+
+        checked_indices = []
+
+        for idx in sorted(self.table_data.checked_row_indices):
+            row_index = idx // self.table_data.total_col_headings
+
+            if row_index not in checked_indices:
+                checked_indices.append(row_index)
+
+        return checked_indices
+
+    def clear_all_checks(self) -> None:
+        """Unchecks all rows in the table."""
+
+        self.set_all_rows_checked(False)
+
+    def check_all_rows(self) -> None:
+        """Checks all rows in the table."""
+
+        self.set_all_rows_checked(True)
+
+    def update_row_data(self, instance_data_table, data: list) -> None:
+        """
+        Called when a the widget data must be updated.
+
+        Remember that this is a heavy function. since the whole data set must
+        be updated. you can get better results calling this metod with in a
+        coroutine.
+        """
+
+        self.table_data.row_data = data
+        self.row_data = data
+        self.table_data.on_rows_num(self, self.table_data.rows_num)
+        # Set cursors to 0.
+        self.table_data._rows_number = 0
+        self.table_data._current_value = 1
+
+        if len(data) < self.table_data.rows_num:
+            self.table_data._to_value = len(data)
+            self.table_data.pagination.ids.button_forward.disabled = True
+        else:
+            self.table_data._to_value = self.table_data.rows_num
+            self.table_data.pagination.ids.button_forward.disabled = False
+
+        self.table_data.set_next_row_data_parts("")
+        self.pagination.ids.button_back.disabled = True
+
+        if self.use_pagination:
+            Clock.schedule_once(self.create_pagination_menu, 0.5)
+
+    def add_row(self, data: Union[list, tuple]) -> None:
+        """
+        Added new row to common table.
+        Argument `data` is the row data from the list :attr:`row_data`.
+
+        .. rubric:: Add/remove row
+
+        .. code-block:: python
+
+            from kivy.metrics import dp
+
+            from kivymd.app import MDApp
+            from kivymd.uix.datatables import MDDataTable
+            from kivymd.uix.boxlayout import MDBoxLayout
+            from kivymd.uix.floatlayout import MDFloatLayout
+            from kivymd.uix.button import MDButton
+            from kivymd.uix.button import MDButtonText
+
+
+            class Example(MDApp):
+                data_tables = None
+
+                def build(self):
+                    self.theme_cls.theme_style = "Dark"
+                    self.theme_cls.primary_palette = "Orange"
+
+                    layout = MDFloatLayout()  # root layout
+                    # Creating control buttons.
+                    button_box = MDBoxLayout(
+                        pos_hint={"center_x": 0.5},
+                        adaptive_size=True,
+                        padding="24dp",
+                        spacing="24dp",
+                    )
+
+                    for button_text in ["Add row", "Remove row"]:
+                        button_box.add_widget(
+                            MDButton(
+                                MDButtonText(
+                                    text=button_text
+                                ),
+                                on_release=lambda x, y=button_text: self.on_button_press(y)
+                            )
+                        )
+
+                    # Create a table.
+                    self.data_tables = MDDataTable(
+                        pos_hint={"center_y": 0.5, "center_x": 0.5},
+                        size_hint=(0.9, 0.6),
+                        use_pagination=False,
+                        column_data=[
+                            ("No.", dp(30)),
+                            ("Column 1", dp(40)),
+                            ("Column 2", dp(40)),
+                            ("Column 3", dp(40)),
+                        ],
+                        row_data=[("1", "1", "2", "3")],
+                    )
+                    # Adding a table and buttons to the toot layout.
+                    layout.add_widget(self.data_tables)
+                    layout.add_widget(button_box)
+
+                    return layout
+
+                def on_button_press(self, button_text: str) -> None:
+                    '''Called when a control button is clicked.'''
+
+                    try:
+                        {
+                            "Add row": self.add_row,
+                            "Remove row": self.remove_row,
+                        }[button_text]()
+                    except KeyError:
+                        pass
+
+                def add_row(self) -> None:
+                    last_num_row = int(self.data_tables.row_data[-1][0])
+                    self.data_tables.add_row((str(last_num_row + 1), "1", "2", "3"))
+
+                def remove_row(self) -> None:
+                    if len(self.data_tables.row_data) > 1:
+                        self.data_tables.remove_row(self.data_tables.row_data[-1])
+
+
+            Example().run()
+
+        .. image:: https://github.com/HeaTTheatR/KivyMD-data/raw/master/gallery/kivymddoc/data-tables-add-remove-row.gif
+            :align: center
+
+        Deleting checked rows
+        ---------------------
+
+        .. code-block:: python
+
+            from kivy.metrics import dp
+            from kivy.lang import Builder
+            from kivy.clock import Clock
+
+            from kivymd.app import MDApp
+            from kivymd.uix.datatables import MDDataTable
+            from kivymd.uix.screen import MDScreen
+
+            KV = '''
+            MDBoxLayout:
+                orientation: "vertical"
+                padding: "56dp"
+                spacing: "24dp"
+
+                MDData:
+                    id: table_screen
+
+                MDButton:
+                    on_release: table_screen.delete_checked_rows()
+
+                    MDButtonText:
+                        text: "DELETE CHECKED ROWS"
+            '''
+
+
+            class MDData(MDScreen):
+                def __init__(self, *args, **kwargs):
+                    super().__init__(*args, **kwargs)
+                    self.data = [
+                        ["1", "Asep Sudrajat", "Male", "Soccer"],
+                        ["2", "Egy", "Male", "Soccer"],
+                        ["3", "Tanos", "Demon", "Soccer"],
+                    ]
+                    self.data_tables = MDDataTable(
+                        use_pagination=True,
+                        check=True,
+                        column_data=[
+                            ("No", dp(30)),
+                            ("No Urut.", dp(30)),
+                            ("Alamat Pengirim", dp(30)),
+                            ("No Surat", dp(60)),
+                        ]
+                    )
+                    self.data_tables.row_data = self.data
+                    self.add_widget(self.data_tables)
+
+                def delete_checked_rows(self):
+                    def deselect_rows(*args):
+                        self.data_tables.table_data.select_all("normal")
+
+                    for data in self.data_tables.get_row_checks():
+                        self.data_tables.remove_row(data)
+
+                    Clock.schedule_once(deselect_rows)
+
+
+            class MyApp(MDApp):
+                def build(self):
+                    self.theme_cls.theme_style = "Dark"
+                    self.theme_cls.primary_palette = "Orange"
+                    return Builder.load_string(KV)
+
+
+            MyApp().run()
+
+        .. image:: https://github.com/HeaTTheatR/KivyMD-data/raw/master/gallery/kivymddoc/data-tables-deleting-checked-rows.gif
+            :align: center
+
+        .. versionadded:: 1.0.0
+        """
+
+        self.row_data.append(data)
+        Clock.schedule_once(self.table_data._update_content_cells_rows)
+
+    def remove_row(self, data: Union[list, tuple]) -> None:
+        """
+        Removed row from common table.
+        Argument `data` is the row data from the list :attr:`row_data`.
+
+        See the code in the doc string for the :attr:`add_row` method for more
+        information.
+
+        .. versionadded:: 1.0.0
+        """
+
+        # Direct comparison of data.
+        for i, row in enumerate(self.row_data):
+            if list(row) == list(data):
+                self.row_data.pop(i)
+                self.update_row_data(None, self.row_data)
+                # Clear checkboxes.
+                self.table_data.checked_row_indices = []
+                self.table_data.current_selection_check = {}
+                self.table_data.table_header.ids.check.state = "normal"
+
+                return
+
+        # If a direct comparison didn't work, we try to find a partial match.
+        for i, row in enumerate(self.row_data):
+            match = True
+            for j, val in enumerate(data):
+                if j >= len(row):
+                    match = False
+                    break
+
+                # If the cell contains a tuple with an icon, compare the text.
+                if isinstance(row[j], (tuple, list)) and len(row[j]) > 1:
+                    if str(row[j][-1]) != str(val):
+                        match = False
+                        break
+                else:
+                    if str(row[j]) != str(val):
+                        match = False
+                        break
+
+            if match:
+                self.row_data.pop(i)
+                self.update_row_data(None, self.row_data)
+                self.table_data.checked_row_indices = []
+                self.table_data.current_selection_check = {}
+                self.table_data.table_header.ids.check.state = "normal"
+
+                return
+
+        raise ValueError(f"Row data {data} not found in table")
+
+    def update_row(
+        self, old_data: Union[list, tuple], new_data: Union[list, tuple]
+    ) -> None:
+        """
+        Updates a table row.
+        Argument `old_data/new_data` is the row data from the list :attr:`row_data`.
+
+        .. rubric:: Update row
+
+        .. code-block:: python
+
+            from kivy.metrics import dp
+
+            from kivymd.app import MDApp
+            from kivymd.uix.datatables import MDDataTable
+            from kivymd.uix.floatlayout import MDFloatLayout
+            from kivymd.uix.button import MDButton, MDButtonText
+
+
+            class Example(MDApp):
+                data_tables = None
+
+                def build(self):
+                    self.theme_cls.theme_style = "Dark"
+                    self.theme_cls.primary_palette = "Orange"
+
+                    layout = MDFloatLayout()
+                    layout.add_widget(
+                        MDButton(
+                            MDButtonText(
+                                text="Change 2 row"
+                            ),
+                            pos_hint={"center_x": 0.5},
+                            on_release=self.update_row,
+                            y=24,
+                        )
+                    )
+                    self.data_tables = MDDataTable(
+                        pos_hint={"center_y": 0.5, "center_x": 0.5},
+                        size_hint=(0.9, 0.6),
+                        use_pagination=False,
+                        column_data=[
+                            ("No.", dp(30)),
+                            ("Column 1", dp(40)),
+                            ("Column 2", dp(40)),
+                            ("Column 3", dp(40)),
+                        ],
+                        row_data=[(f"{i + 1}", "1", "2", "3") for i in range(3)],
+                    )
+                    layout.add_widget(self.data_tables)
+
+                    return layout
+
+                def update_row(self, instance_button: MDButton) -> None:
+                    self.data_tables.update_row(
+                        self.data_tables.row_data[1],  # old row data
+                        ["2", "A", "B", "C"],  # new row data
+                    )
+
+
+            Example().run()
+
+        .. image:: https://github.com/HeaTTheatR/KivyMD-data/raw/master/gallery/kivymddoc/data-tables-change-row.gif
+            :align: center
+
+        .. versionadded:: 1.0.0
+        """
+
+        for data in self.row_data:
+            if data == old_data:
+                index_data = self.row_data.index(data)
+                self.row_data[index_data] = new_data
+                break
+
+    def on_row_press(self, instance_cell_row) -> None:
+        """Called when a table row is clicked."""
+
+    def on_check_press(self, row_data: list) -> None:
+        """
+        Called when the check box in the table row is checked.
+
+        :param row_data: One of the elements from the :attr:`MDDataTable.row_data` list.
+        """
+
+    def get_row_checks(self) -> list:
+        """Returns all rows that are checked."""
+
+        return self.table_data._get_row_checks()
+
+    def create_pagination_menu(self, interval: Union[int, float]) -> None:
+        menu_items = [
+            {
+                "text": f"{i}",
+                "on_release": lambda x=f"{i}": self.table_data.set_number_displayed_lines(
+                    x
+                ),
+            }
+            for i in range(self.rows_num, len(self.row_data), self.rows_num)
+        ]
+        pagination_menu = MDDropdownMenu(
+            caller=self.pagination.ids.drop_item,
+            items=menu_items,
+            position=self.pagination_menu_pos,
+            max_height=self.pagination_menu_height,
+            width_mult=2,
+        )
+        pagination_menu.bind(
+            on_dismiss=self.table_data.close_pagination_menu,
+        )
+        self.table_data.pagination_menu = pagination_menu
+
+    def _scroll_with_header(self, instance, value):
+        self.header.scroll_x = value
+
+
+class CellRow(
+    ThemableBehavior,
+    RecycleDataViewBehavior,
+    StateLayerBehavior,
+    ButtonBehavior,
+    BoxLayout,
+):
+    """Implements a data row from :attr:`~MDDataTable.column_data`."""
+
+    background_color_cell = ColorProperty(None)
+    """
+    See :attr:`~MDDataTable.background_color_cell.`.
+
+    .. versionadded:: 1.0.0
+
+    :attr:`background_color_cell` is a :class:`~kivy.properties.ColorProperty`
+    and defaults to `None`.
+    """
+
+    background_color_selected_cell = ColorProperty(None)
+    """
+    See :attr:`~MDDataTable.background_color_selected_cell.`.
+
+    .. versionadded:: 1.0.0
+
+    :attr:`background_color_selected_cell` is a :class:`~kivy.properties.ColorProperty`
+    and defaults to `None`.
+    """
+
+    text = StringProperty()
+    """
+    Row text.
+
+    :attr:`text` is a :class:`~kivy.properties.StringProperty`
+    and defaults to `''`.
+    """
+
+    table = ObjectProperty()
+    """
+    Class class:`~TableData`.
+
+    :attr:`table` is a :class:`~kivy.properties.ObjectProperty`
+    and defaults to `None`.
+    """
+
+    icon = StringProperty()
+    """
+    Row icon name.
+
+    :attr:`icon` is a :class:`~kivy.properties.StringProperty`
+    and defaults to `''`.
+    """
+
+    icon_color = ColorProperty(None)
+    """
+    Row icon color.
+
+    :attr:`icon_color` is a :class:`~kivy.properties.ColorProperty`
+    and defaults to `None`.
+    """
+
+    cell_widget = DictProperty()
+    widget_container = ObjectProperty(None)
+    selected = BooleanProperty(False)
+    selectable = BooleanProperty(True)
+    index = None
+    icon_copy = icon
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.ids.check.bind(active=self.select_check)
+        self.ids.check.bind(active=self.notify_checkbox_click)
+
+    def notify_checkbox_click(
+        self, instance_check: MDCheckbox, active: bool
+    ) -> None:
+        """Called when the table row checkbox is activated/deactivated."""
+
+        self.table.get_select_row(self.index)
+
+    def refresh_view_attrs(
+        self, instance_table_data: TableData, index: int, data: dict
+    ):
+        """
+        Called by the :class:`RecycleAdapter` when the view is initially
+        populated with the values from the `data` dictionary for this item.
+
+        Any pos or size info should be removed because they are set
+        subsequently with :attr:`refresh_view_layout`.
+
+        :Parameters:
+
+            `table_data`: :class:`TableData` instance
+                The :class:`TableData` that caused the update.
+            `data`: dict
+                The data dict used to populate this view.
+        """
+
+        self.index = index
+        container = self.ids.widget_container
+
+        if container:
+            container.clear_widgets()
+            container.size_hint_x = None
+            container.width = 0
+            container.opacity = 0
+
+        self.cell_widget = data.get("cell_widget", {})
+        if self.cell_widget:
+            Clock.schedule_once(self._create_widget)
+
+        return super().refresh_view_attrs(instance_table_data, index, data)
+
+    def apply_selection(
+        self, instance_table_data: TableData, index: int, is_selected: bool
+    ) -> None:
+        """Called when list items of table appear on the screen."""
+
+        self.selected = is_selected
+
+        # Fixes cloning of icons.
+        ic = instance_table_data.recycle_data[index].get("icon", None)
+        cell_row_obj = instance_table_data.view_adapter.get_visible_view(index)
+
+        if not ic:
+            cell_row_obj.icon = ""
+        else:
+            cell_row_obj.icon = cell_row_obj.icon_copy
+
+        # Set checkboxes.
+        if instance_table_data.check:
+            if self.index in instance_table_data.data_first_cells:
+                self.ids.check.size = (dp(32), dp(32))
+                self.ids.check.opacity = 1
+                self.ids.box.spacing = dp(16)
+                self.ids.box.padding[0] = dp(8)
+            else:
+                self.ids.check.size = (0, 0)
+                self.ids.check.opacity = 0
+                self.ids.box.spacing = 0
+                self.ids.box.padding[0] = 0
+
+        # Set checkboxes state.
+        if (
+            instance_table_data._rows_number
+            in instance_table_data.current_selection_check
+        ):
+            for index in instance_table_data.current_selection_check[
+                instance_table_data._rows_number
+            ]:
+                if (
+                    self.index
+                    in instance_table_data.current_selection_check[
+                        instance_table_data._rows_number
+                    ]
+                ):
+                    self.change_check_state_no_notify("down")
+                else:
+                    self.change_check_state_no_notify("normal")
+        else:
+            self.change_check_state_no_notify("normal")
+
+    def change_check_state_no_notify(self, new_state: str) -> None:
+        checkbox = self.ids.check
+        checkbox.unbind(active=self.notify_checkbox_click)
+        checkbox.state = new_state
+        checkbox.bind(active=self.notify_checkbox_click)
+
+    def select_check(
+        self, instance_table_data: MDDataTable, active: bool
+    ) -> None:
+        """Called upon activation/deactivation of the checkbox."""
+
+        if active:
+            if self.index not in self.table.checked_row_indices:
+                self.table.checked_row_indices.append(self.index)
+        else:
+            if self.index in self.table.checked_row_indices:
+                self.table.checked_row_indices.remove(self.index)
+
+        if active:
+            if (
+                self.table._rows_number
+                not in self.table.current_selection_check
+            ):
+                self.table.current_selection_check[self.table._rows_number] = []
+            if (
+                self.index
+                not in self.table.current_selection_check[
+                    self.table._rows_number
+                ]
+            ):
+                self.table.current_selection_check[
+                    self.table._rows_number
+                ].append(self.index)
+        else:
+            if self.table._rows_number in self.table.current_selection_check:
+                if (
+                    self.index
+                    in self.table.current_selection_check[
+                        self.table._rows_number
+                    ]
+                    and not active
+                ):
+                    self.table.current_selection_check[
+                        self.table._rows_number
+                    ].remove(self.index)
+
+    def on_touch_down(self, touch):
+        if super().on_touch_down(touch):
+            if self.table._parent:
+                self.table._parent.dispatch("on_row_press", self)
+
+            return True
+
+    def on_icon(self, instance_cell_row, name_icon: str) -> None:
+        self.icon_copy = name_icon
+
+    def on_table(
+        self, instance_cell_row, instance_table_data: TableData
+    ) -> None:
+        """Sets padding/spacing to zero if no checkboxes are used for rows."""
+
+        if not instance_table_data.check:
+            self.ids.box.padding = 0
+            self.ids.box.spacing = 0
+
+    def _check_all(self, state):
+        """Checks if all checkboxes are in same state."""
+
+        if state == "down" and self.table.check_all(state):
+            self.table.table_header.ids.check.state = "down"
+        else:
+            self.table.table_header.ids.check.state = "normal"
+
+    def _create_widget_from_dict(self, widget_dict, row_index=0, row_data=None):
+        """Creates a widget from a dictionary of parameters."""
+
+        if not widget_dict:
+            return None
+
+        viewclass = widget_dict.get("viewclass")
+
+        if not viewclass:
+            return None
+
+        widget_class = Factory.get(viewclass)
+        widget = widget_class()
+
+        # Apply properties.
+        reserved = {
+            "viewclass",
+            "on_ref_press",
+            "on_release",
+            "on_press",
+            "on_active",
+            "children",
+            "row_index",
+            "row_data",
+        }
+        for key, value in widget_dict.items():
+            if key not in reserved and hasattr(widget, key):
+                try:
+                    setattr(widget, key, value)
+                except Exception as e:
+                    Logger.warning(
+                        f"KivyMD: Could not set '{key}' on {viewclass}: {e}"
+                    )
+
+        # Add children.
+        for child_dict in widget_dict.get("children", []):
+            child_widget = self._create_widget_from_dict(
+                child_dict, row_index, row_data
+            )
+            if child_widget:
+                widget.add_widget(child_widget)
+
+        # Get row data if not provided.
+        if row_data is None:
+            row_data = (
+                self.table.row_data[row_index]
+                if self.table
+                and self.table.row_data
+                and row_index < len(self.table.row_data)
+                else []
+            )
+
+        # Bind events.
+        events = {
+            "on_press": lambda x: widget_dict["on_press"](row_index, row_data),
+            "on_release": lambda x: widget_dict["on_release"](
+                row_index, row_data
+            ),
+            "on_ref_press": lambda x, uid: widget_dict["on_ref_press"](
+                row_index, row_data
+            ),
+            "on_active": lambda x, active: widget_dict["on_active"](
+                row_index, row_data
+            ),
+        }
+
+        for event_name, callback in events.items():
+            if event_name in widget_dict and callable(widget_dict[event_name]):
+                if hasattr(widget, "bind"):
+                    widget.bind(**{event_name: callback})
+
+        return widget
+
+    def _create_child_widget(self, child_dict):
+        """Creates a child widget."""
+
+        return self._create_widget_from_dict(child_dict)
+
+    def _create_widget(self, *args):
+        """Creates the main widget in the cell."""
+
+        if not self.cell_widget:
+            return
+
+        container = self.ids.widget_container
+
+        if not container:
+            return
+
+        container.clear_widgets()
+
+        row_index = (
+            self.index // self.table.total_col_headings
+            if self.table and self.table.total_col_headings > 0
+            else 0
+        )
+        row_data = (
+            self.table.row_data[row_index]
+            if self.table
+            and self.table.row_data
+            and row_index < len(self.table.row_data)
+            else []
+        )
+
+        widget = self._create_widget_from_dict(
+            self.cell_widget, row_index, row_data
+        )
+        if not widget:
+            return
+
+        container.add_widget(widget)
+        container.size_hint_x = None
+        container.width = widget.width if hasattr(widget, "width") else dp(80)
+        container.opacity = 1
+
+        self.ids.icon.opacity = 1
+        self.ids.icon.size = ("24dp", "24dp") if self.icon else (0, 0)
+        self.ids.label.opacity = 1
+        self.ids.label.size = (0, 0) if not self.text else None
+
+
+class SortButton(MDIconButton):
+    """Implements a sort button in the :class:`~CellHeader` class."""
