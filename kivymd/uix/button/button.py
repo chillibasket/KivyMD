@@ -898,8 +898,9 @@ class BaseButton(
         self._on_release(args)
 
     def on_touch_down(self, touch):
-        if self.collide_point(touch.x, touch.y) and not self.disabled:
-            return super().on_touch_down(touch)
+        if self.disabled and self.collide_point(*touch.pos):
+            return True
+        return super().on_touch_down(touch)
 
     def finish_ripple(self):
         def reset_state(*args):
