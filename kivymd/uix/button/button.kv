@@ -256,6 +256,7 @@
 
 <MDButton>
     md_bg_color:
+        (
         { \
         "elevated": self.theme_cls.surfaceContainerLowColor, \
         "filled": self.theme_cls.primaryColor, \
@@ -264,6 +265,21 @@
         "text": self.theme_cls.transparentColor, \
         }[self.style] \
         if self.theme_bg_color == "Primary" else self.md_bg_color
+        ) if not self.disabled else (
+        (
+        { \
+        "elevated": self.theme_cls.onSurfaceColor[:-1] + \
+        [self.button_elevated_opacity_value_disabled_container], \
+        "tonal": self.theme_cls.onSurfaceColor[:-1] + \
+        [self.button_tonal_opacity_value_disabled_container], \
+        "filled": self.theme_cls.onSurfaceColor[:-1] + \
+        [self.button_filled_opacity_value_disabled_container], \
+        "outlined": self.theme_cls.onSurfaceColor[:-1] + \
+        [self.button_outlined_opacity_value_disabled_container], \
+        "text": self.theme_cls.transparentColor, \
+        }[self.style]
+        ) if not self.md_bg_color_disabled else self.md_bg_color_disabled
+        )
     line_color:
         ( \
         ( \

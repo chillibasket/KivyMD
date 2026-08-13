@@ -345,6 +345,9 @@ class StateLayerBehavior(StateFocusBehavior):
     def on_enter(self) -> None:
         """Fired when mouse enter the bbox of the widget."""
 
+        if getattr(self, "disabled", False):
+            return
+
         self._state = self.state_hover
         self.set_properties_widget()
 
