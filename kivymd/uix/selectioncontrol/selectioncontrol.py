@@ -478,12 +478,12 @@ from kivy.lang import Builder
 from kivy.metrics import dp
 from kivy.properties import (
     BooleanProperty,
+    BoundedNumericProperty,
     ColorProperty,
     ListProperty,
     StringProperty,
-    BoundedNumericProperty,
 )
-from kivy.uix.behaviors import ToggleButtonBehavior, ButtonBehavior
+from kivy.uix.behaviors import ButtonBehavior, ToggleButtonBehavior
 
 from kivymd import uix_path
 from kivymd.uix.behaviors import CircularRippleBehavior, ScaleBehavior
@@ -685,9 +685,29 @@ class MDCheckbox(
     and defaults to `None`.
     """
 
+    disable_animation = BooleanProperty(False)
+    """
+    Disable the checkbox animation.
+
+    .. versionadded:: 2.0.0
+
+    .. code-block:: kv
+
+        MDCheckbox:
+            focus_behavior: False
+            ripple_effect: False
+            disable_animation: True
+
+    .. image:: https://github.com/HeaTTheatR/KivyMD-data/raw/master/gallery/kivymddoc/checkbox-disable-animation.gif
+        :align: center
+
+    :attr:`disable_animation` is a :class:`~kivy.properties.BooleanProperty`
+    and defaults to `False`.
+    """
+
     _current_color = ColorProperty([0.0, 0.0, 0.0, 0.0])
 
-    __events__ = ("on_active", )
+    __events__ = ("on_active",)
 
     def __init__(self, **kwargs):
         self.check_anim_out = Animation(
@@ -753,19 +773,25 @@ class MDCheckbox(
     def on_state(self, *args) -> None:
         """Fired when the values of :attr:`state` change."""
 
-        if self.state == "down":
-            self.check_anim_in.cancel(self)
-            self.check_anim_out.start(self)
-            self.update_icon()
-            if self.group:
-                self._release_group(self)
-            self.active = True
+        is_down = self.state == "down"
+
+        # Without animation.
+        if self.disable_animation:
+            self.scale_value_x = 1
+            self.scale_value_y = 1
+        # With animation.
         else:
             self.check_anim_in.cancel(self)
-            if not self.group:
+
+            if is_down or not self.group:
                 self.check_anim_out.start(self)
-            self.update_icon()
-            self.active = False
+
+        self.update_icon()
+
+        if is_down and self.group:
+            self._release_group(self)
+
+        self.active = is_down
 
     def on_active(self, *args) -> None:
         """Fired when the values of :attr:`active` change."""
@@ -831,7 +857,9 @@ class Thumb(CircularRippleBehavior, ButtonBehavior, MDFloatLayout):
         )
 
 
-class MDSwitch(ActiveBehavior, StateLayerBehavior, ButtonBehavior, MDFloatLayout):
+class MDSwitch(
+    ActiveBehavior, StateLayerBehavior, ButtonBehavior, MDFloatLayout
+):
     """
     Switch class.
 
@@ -1063,6 +1091,26 @@ class MDSwitch(ActiveBehavior, StateLayerBehavior, ButtonBehavior, MDFloatLayout
     and defaults to `None`.
     """
 
+    disable_animation = BooleanProperty(False)
+    """
+    Disable the switch animation.
+
+    .. versionadded:: 2.0.0
+
+    .. code-block:: kv
+
+        MDSwitch:
+            focus_behavior: False
+            ripple_effect: False
+            disable_animation: True
+
+    .. image:: https://github.com/HeaTTheatR/KivyMD-data/raw/master/gallery/kivymddoc/switch-disable-animation.gif
+        :align: center
+
+    :attr:`disable_animation` is a :class:`~kivy.properties.BooleanProperty`
+    and defaults to `False`.
+    """
+
     _thumb_pos = ListProperty([0, 0])
     _line_color = ColorProperty(None)
 
@@ -1091,6 +1139,11 @@ class MDSwitch(ActiveBehavior, StateLayerBehavior, ButtonBehavior, MDFloatLayout
         if not self.disabled:
             self._line_color = value
 
+    def on_ripple_effect(self, instance, value) -> None:
+        """Fired when the values of :attr:`ripple_effect` change."""
+
+        self.ids.thumb.ripple_effect = value
+
     def on_active(self, *args) -> None:
         """Fired when the values of :attr:`active` change."""
 
@@ -1111,9 +1164,37 @@ class MDSwitch(ActiveBehavior, StateLayerBehavior, ButtonBehavior, MDFloatLayout
         elif self.icon_inactive and not active_value:
             icon = self.icon_inactive
 
-        Animation(size=size, t="out_quad", d=0.2).start(self.ids.thumb)
+        # Without animation.
+        if self.disable_animation:
+            self.ids.thumb.size = size
+        # With animation.
+        else:
+            Animation(size=size, t="out_quad", d=0.2).start(self.ids.thumb)
+
         self.set_icon(self, icon)
         self._update_thumb_pos()
+
+    # FIXME: If you move the cursor from the switch during the
+    #  `on_touch_down` event, the animation of returning the thumb to
+    #  the previous size does not work. The following code fixes this.
+    def on_thumb_down(self) -> None:
+        """
+        Fired at the on_touch_down event of the :class:`~Thumb` object.
+        Indicates the state of the switch "on/off" by an animation of
+        increasing the size of the thumb.
+        """
+
+        if self.active:
+            size = (dp(28), dp(28))
+        else:
+            size = (dp(24), dp(24))
+
+        # Without animation.
+        if self.disable_animation:
+            self.ids.thumb.size = size
+        # With animation.
+        else:
+            Animation(size=size, t="out_quad", d=0.2).start(self.ids.thumb)
 
     def _update_thumb_pos(self, *args, animation=True):
         if self.active:
@@ -1126,11 +1207,17 @@ class MDSwitch(ActiveBehavior, StateLayerBehavior, ButtonBehavior, MDFloatLayout
                 0 if not self.icon_inactive else dp(-14),
                 self.height / 2 - dp(16),
             )
+
         Animation.cancel_all(self, "_thumb_pos")
 
-        if animation:
-            Animation(_thumb_pos=_thumb_pos, duration=0.2, t="out_quad").start(
-                self
-            )
-        else:
+        # Without animation.
+        if self.disable_animation:
             self._thumb_pos = _thumb_pos
+        # With animation.
+        else:
+            if animation:
+                Animation(
+                    _thumb_pos=_thumb_pos, duration=0.2, t="out_quad"
+                ).start(self)
+            else:
+                self._thumb_pos = _thumb_pos

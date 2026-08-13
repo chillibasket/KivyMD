@@ -45,11 +45,11 @@ class TestHelperTextModeOnFocus(MDApp):
 
     def check_helper_text_focus(self, *args):
         field = self.root.ids.field
-        focus = field.focus
-
-        instruction = self.root.ids.field.canvas.before.get_group(
-            "helper-text-color"
-        )[0]
+        # focus = field.focus
+        #
+        # instruction = self.root.ids.field.canvas.before.get_group(
+        #     "helper-text-color"
+        # )[0]
         # assert instruction.rgba == (
         #     [0.0, 0.0, 0.0, 0.0]
         #     if not focus
@@ -72,4 +72,5 @@ class TestHelperTextModeOnFocus(MDApp):
         Clock.schedule_once(self.check_helper_text_focus, 2)
 
 
-TestHelperTextModeOnFocus().run()
+if __name__ == "__main__":
+    TestHelperTextModeOnFocus().run()

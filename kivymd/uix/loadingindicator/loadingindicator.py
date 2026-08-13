@@ -2,6 +2,8 @@
 Components/LoadingIndicator
 ===========================
 
+.. versionadded:: 2.0.0
+
 .. seealso::
 
     `Material Design spec, Loading indicator <https://m3.material.io/components/loading-indicator/overview>`_
@@ -89,7 +91,6 @@ Usage
     :align: center
 """
 
-
 import os
 
 from kivy.animation import Animation
@@ -103,11 +104,10 @@ from kivy.properties import (
     StringProperty,
 )
 from kivy.uix.anchorlayout import AnchorLayout
+from materialshapes.kivy_widget import MaterialShape  # NOQA
 
-from materialshapes.kivy_widget import MaterialShape
 from kivymd import uix_path
-from kivymd.uix.behaviors import DeclarativeBehavior
-from kivymd.uix.behaviors import RotateBehavior
+from kivymd.uix.behaviors import DeclarativeBehavior, RotateBehavior
 
 with open(
     os.path.join(uix_path, "loadingindicator", "loadingindicator.kv"),
@@ -191,20 +191,20 @@ class MDLoadingIndicator(DeclarativeBehavior, AnchorLayout, RotateBehavior):
     and defaults to `0.65`.
     """
 
-    active_indicator_color = ColorProperty([0,0,0,0])
+    active_indicator_color = ColorProperty([0, 0, 0, 0])
     """
     Color of the active (foreground) loading shape.
 
     :attr:`active_indicator_color` is a :class:`~kivy.properties.ColorProperty`
-    and defaults to `None`.
+    and defaults to `[0, 0, 0, 0]`.
     """
 
-    container_color = ColorProperty([0,0,0,0])
+    container_color = ColorProperty([0, 0, 0, 0])
     """
     Background container color of the indicator.
 
     :attr:`container_color` is a :class:`~kivy.properties.ColorProperty`
-    and defaults to `None`.
+    and defaults to `[0, 0, 0, 0]`.
     """
 
     shape_index = NumericProperty(0)
@@ -227,16 +227,17 @@ class MDLoadingIndicator(DeclarativeBehavior, AnchorLayout, RotateBehavior):
 
         If already active, the animation sequence is reset.
         """
+
         self._run_cycle()
         self.stop()
         self._intrvl = Clock.schedule_interval(self._run_cycle, self.duration)
 
     def stop(self, *args):
-        """
-        Stop the loading animation.
-        """
+        """Stop the loading animation."""
+
         if self._intrvl is not None:
             self._intrvl.cancel()
+
         self._intrvl = None
 
     def _run_cycle(self, *args):
@@ -252,6 +253,7 @@ class MDLoadingIndicator(DeclarativeBehavior, AnchorLayout, RotateBehavior):
         This method is called automatically at regular intervals
         determined by :attr:`duration`.
         """
+
         shape = self.shape_sequence[self.shape_index % len(self.shape_sequence)]
         self.ids.material_shape.morph_to(shape, d=self.duration * 0.9)
 
@@ -263,9 +265,7 @@ class MDLoadingIndicator(DeclarativeBehavior, AnchorLayout, RotateBehavior):
 
         self.shape_index += 1
 
-
     def get_shape_names(self):
-        """
-        Return all available material shape names.
-        """
+        """Return all available material shape names."""
+
         return list(self.ids.material_shape.material_shapes.all.keys())

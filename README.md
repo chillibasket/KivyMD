@@ -35,8 +35,9 @@ may be offered to you without asking too.
 [![Open Collective](https://img.shields.io/opencollective/all/kivymd?label=financial%20contributors&logo=open-collective)](https://opencollective.com/kivymd)
 
 [![Coverage status](https://coveralls.io/repos/github/kivymd/KivyMD/badge.svg)](https://coveralls.io/github/kivymd/KivyMD)
-[![Build workflow](https://github.com/kivymd/KivyMD/workflows/Build/badge.svg?branch=master)](https://github.com/kivymd/KivyMD/actions?query=workflow%3ABuild)
-[![Test workflow](https://github.com/kivymd/KivyMD/workflows/Test/badge.svg?branch=master)](https://github.com/kivymd/KivyMD/actions?query=workflow%3ATest)
+[![Build workflow](https://github.com/kivymd/KivyMD/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/kivymd/KivyMD/actions/workflows/build.yml)
+[![Release workflow](https://github.com/kivymd/KivyMD/actions/workflows/release.yml/badge.svg?branch=master)](https://github.com/kivymd/KivyMD/actions/workflows/release.yml)
+[![Test workflow](https://github.com/kivymd/KivyMD/actions/workflows/test.yml/badge.svg?branch=master)](https://github.com/kivymd/KivyMD/actions?query=workflow%3ATest)
 [![Documentation status](https://readthedocs.org/projects/kivymd/badge/?version=latest)](https://kivymd.readthedocs.io)
 [![Repository size](https://img.shields.io/github/repo-size/kivymd/kivymd.svg)](https://github.com/kivymd/KivyMD)
 
@@ -52,7 +53,7 @@ pip install kivymd==2.0.0
 - [Python 3.7+](https://www.python.org/)
 - [Pillow](https://github.com/python-pillow/Pillow/)
 - [PyCairo](https://github.com/pygobject/pycairo) ([Installation](https://pycairo.readthedocs.io/en/latest/getting_started.html#getting-started))
-- [MaterialColor](https://github.com/T-Dynamos/materialyoucolor-python)
+- [MaterialColor](https://github.com/T-Dynamos/materialyoucolor-python) >= 3.0.3
 - [MaterialShapes](https://github.com/T-Dynamos/materialshapes-python)
 - [asynckivy](https://github.com/asyncgui/asynckivy)
 
@@ -90,7 +91,7 @@ to save time. If you need full commit history, then remove `--depth 1`.
 requirements = python3,
     kivy,
     https://github.com/kivymd/KivyMD/archive/master.zip,
-    materialyoucolor,
+    materialyoucolor==3.0.3,
     materialshapes,
     pycairo,
     pillow,

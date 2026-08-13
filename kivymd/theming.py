@@ -23,24 +23,24 @@ has the :attr:`~kivymd.app.MDApp.theme_cls` attribute, with which you control
 the material properties of your application.
 """
 
-
-from kivy import platform
+from kivy import Logger, platform
 from kivy.app import App
 from kivy.core.window import Window
 from kivy.event import EventDispatcher
-from kivy.logger import Logger
 from kivy.properties import (
-    Property,
     AliasProperty,
     BooleanProperty,
     DictProperty,
     NumericProperty,
     ObjectProperty,
     OptionProperty,
-    StringProperty
+    Property,
+    StringProperty,
 )
 from kivy.utils import get_color_from_hex, hex_colormap, rgba
 from materialyoucolor.dislike.dislike_analyzer import DislikeAnalyzer
+from materialyoucolor.dynamiccolor.color_spec import COLOR_NAMES
+from materialyoucolor.dynamiccolor.dynamic_scheme import DynamicScheme
 from materialyoucolor.dynamiccolor.material_dynamic_colors import (
     MaterialDynamicColors,
 )
@@ -52,9 +52,17 @@ from kivymd.dynamic_color import DynamicColor
 from kivymd.font_definitions import theme_font_styles
 from kivymd.material_resources import DEVICE_IOS
 
+set_dark_mode_listener = None
+
+if platform == "android":
+    try:
+        from android.darkmode import set_dark_mode_listener
+    except Exception:
+        pass
+
 
 class ThemeManager(EventDispatcher, DynamicColor):
-    primary_palette = Property(None)
+    primary_palette = Property("Blue")
     """
     The name of the color scheme that the application will use.
     All major `material` components will have the color
@@ -157,7 +165,9 @@ class ThemeManager(EventDispatcher, DynamicColor):
 
     dynamic_color = BooleanProperty(False)
     """
-    Enables or disables dynamic color.
+    If ``True``, generates the application's color scheme from the user's wallpaper instead
+    of :attr:`primary_palette`. If your application targets Android, it is recommended
+    to enable this property.
 
     .. versionadded:: 2.0.0
 
@@ -189,10 +199,10 @@ class ThemeManager(EventDispatcher, DynamicColor):
                     MDButton:
                         style: "elevated"
                         pos_hint: {"center_x": .5, "center_y": .5}
-        
+
                         MDButtonIcon:
                             icon: "plus"
-        
+
                         MDButtonText:
                             text: "Elevated"
                 '''
@@ -490,6 +500,75 @@ class ThemeManager(EventDispatcher, DynamicColor):
     and defaults to `0.2`.
     """
 
+    follow_system_theme = BooleanProperty(False)
+    """
+    Automatically follows the Android system theme.
+
+    When set to ``True``, the application automatically switches between
+    ``"Light"`` and ``"Dark"`` theme styles when the Android system
+    appearance changes. On other platforms, this property has no effect.
+
+    .. versionadded:: 2.0.0
+
+    .. tabs::
+
+        .. tab:: Declarative style with KV
+
+            .. code-block:: python
+
+                from kivy.lang import Builder
+
+                from kivymd.app import MDApp
+
+                KV = '''
+                MDScreen:
+                    md_bg_color: self.theme_cls.backgroundColor
+
+                    MDLabel:
+                        text: "Change the system theme on your device."
+                        pos_hint: {"center_x": .5, "center_y": .5}
+                        adaptive_size: True
+                '''
+
+
+                class Example(MDApp):
+                    def build(self):
+                        self.theme_cls.follow_system_theme = True
+                        return Builder.load_string(KV)
+
+
+                Example().run()
+
+        .. tab:: Declarative python style
+
+            .. code-block:: python
+
+                from kivymd.app import MDApp
+                from kivymd.uix.label import MDLabel
+                from kivymd.uix.screen import MDScreen
+
+
+                class Example(MDApp):
+                    def build(self):
+                        self.theme_cls.follow_system_theme = True
+                        return (
+                            MDScreen(
+                                MDLabel(
+                                    text="Change the system theme on your device.",
+                                    pos_hint={"center_x": .5, "center_y": .5},
+                                    adaptive_size=True,
+                                ),
+                                md_bg_color=self.theme_cls.backgroundColor
+                            )
+                        )
+
+
+                Example().run()
+
+    :attr:`follow_system_theme` is a :class:`~kivy.properties.BooleanProperty`
+    and defaults to `False`.
+    """
+
     theme_style = OptionProperty("Light", options=["Light", "Dark"])
     """
     App theme style.
@@ -704,9 +783,7 @@ class ThemeManager(EventDispatcher, DynamicColor):
     """
 
     def _get_dynamic_color_names(self):
-        return [
-            attr for attr in dir(self) if attr.endswith("Color")
-        ]
+        return [attr for attr in dir(self) if attr.endswith("Color")]
 
     dynamic_color_names = AliasProperty(_get_dynamic_color_names)
     """
@@ -716,11 +793,13 @@ class ThemeManager(EventDispatcher, DynamicColor):
         • disabledTextColor
         • errorColor
         • errorContainerColor
+        • errorDimColor
+        • errorPaletteKeyColorColor
         • inverseOnSurfaceColor
         • inversePrimaryColor
         • inverseSurfaceColor
-        • neutral_paletteKeyColorColor
-        • neutral_variant_paletteKeyColorColor
+        • neutralPaletteKeyColorColor
+        • neutralVariantPaletteKeyColorColor
         • onBackgroundColor
         • onErrorColor
         • onErrorContainerColor
@@ -743,16 +822,18 @@ class ThemeManager(EventDispatcher, DynamicColor):
         • outlineVariantColor
         • primaryColor
         • primaryContainerColor
+        • primaryDimColor
         • primaryFixedColor
         • primaryFixedDimColor
-        • primary_paletteKeyColorColor
+        • primaryPaletteKeyColorColor
         • rippleColor
         • scrimColor
         • secondaryColor
         • secondaryContainerColor
+        • secondaryDimColor
         • secondaryFixedColor
         • secondaryFixedDimColor
-        • secondary_paletteKeyColorColor
+        • secondaryPaletteKeyColorColor
         • shadowColor
         • surfaceBrightColor
         • surfaceColor
@@ -766,9 +847,10 @@ class ThemeManager(EventDispatcher, DynamicColor):
         • surfaceVariantColor
         • tertiaryColor
         • tertiaryContainerColor
+        • tertiaryDimColor
         • tertiaryFixedColor
         • tertiaryFixedDimColor
-        • tertiary_paletteKeyColorColor
+        • tertiaryPaletteKeyColorColor
         • transparentColor
 
     :attr:`dynamic_color_names` is an :class:`~kivy.properties.AliasProperty`
@@ -796,10 +878,14 @@ class ThemeManager(EventDispatcher, DynamicColor):
                 dark_mode=self._dark_mode(),
                 contrast=self.dynamic_scheme_contrast,
                 dynamic_color_quality=self.dynamic_color_quality,
+                fallback_color=[
+                    int(255 * c)
+                    for c in self.color_to_rgba(self.primary_palette)
+                ],
                 fallback_wallpaper_path=self.path_to_wallpaper,
                 fallback_scheme_name=self.dynamic_scheme_name,
-                message_logger=Logger.info,
-                logger_head="KivyMD",
+                spec_version="2025",
+                logger=Logger,
             )
             if system_scheme:
                 self._set_color_names(system_scheme)
@@ -810,6 +896,14 @@ class ThemeManager(EventDispatcher, DynamicColor):
         """Fired when the :attr:`theme_style` value changes."""
 
         self.set_colors()
+
+    def on_follow_system_theme(self, instance, value) -> None:
+        """Fired when the :attr:`follow_system_theme` value changes."""
+
+        if set_dark_mode_listener is None:
+            return
+
+        set_dark_mode_listener(self.switch_theme_system if value else None)
 
     def on_dynamic_scheme_name(self, *args) -> None:
         """Fired when the :attr:`dynamic_scheme_name` value changes."""
@@ -831,6 +925,16 @@ class ThemeManager(EventDispatcher, DynamicColor):
 
         self.theme_style = "Dark" if self.theme_style == "Light" else "Light"
 
+    def switch_theme_system(self, is_dark_mode: bool) -> None:
+        """
+        Updates the application theme style according to the system theme.
+
+        :param is_dark_mode: ``True`` if the system is using dark mode,
+            otherwise ``False`` for light mode.
+        """
+
+        self.theme_style = "Dark" if is_dark_mode else "Light"
+
     def sync_theme_styles(self, *args) -> None:
         # Syncs the values from self.font_styles to theme_font_styles
         # this will ensure continuity when someone registers a new font_style.
@@ -848,7 +952,7 @@ class ThemeManager(EventDispatcher, DynamicColor):
             if c in hex_colormap:
                 color = hex_colormap[c]
             # use Kivy’s parser for hex
-            if color.startswith('#'):
+            if color.startswith("#"):
                 return list(get_color_from_hex(color))
         return color
 
@@ -869,16 +973,14 @@ class ThemeManager(EventDispatcher, DynamicColor):
                 Hct.from_int(color),
                 self._dark_mode(),
                 self.dynamic_scheme_contrast,
+                spec_version="2025",
             )
         )
 
-    def _set_color_names(self, scheme) -> None:
-        for color_name in vars(MaterialDynamicColors).keys():
+    def _set_color_names(self, scheme: DynamicScheme) -> None:
+        for color_name in COLOR_NAMES:
             attr = getattr(MaterialDynamicColors, color_name)
-            if hasattr(attr, "get_hct"):
-                color_value = rgba(attr.get_hct(scheme).to_rgba())
-                setattr(self, f"{color_name}Color", color_value)
-
+            setattr(self, f"{color_name}Color", rgba(attr.get_rgba(scheme)))
         self.disabledTextColor = self._get_disabled_hint_text_color()
         if self.on_colors:
             self.on_colors()

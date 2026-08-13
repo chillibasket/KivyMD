@@ -100,6 +100,7 @@ if __name__ == "__main__":
                 "images/logo/*.png",
                 "fonts/*.ttf",
                 *glob_paths(".kv"),
+                *glob_paths(".glsl"),
                 *glob_paths(".pot"),
                 *glob_paths(".po"),
             ]
@@ -131,7 +132,7 @@ if __name__ == "__main__":
         install_requires=[
             "kivy>=2.3.0",
             "pillow",
-            "materialyoucolor>=2.0.7",
+            "materialyoucolor>=3.0.3",
             "materialshapes>=0.3",
             "asynckivy>=0.6,<0.7",
         ],
