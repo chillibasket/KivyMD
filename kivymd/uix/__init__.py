@@ -46,45 +46,110 @@ class MDAdaptiveWidget:
     and defaults to `False`.
     """
 
+    def _set_adaptive_binding(self, name: str, follows: str, callback) -> None:
+        """Give an adaptive property a single binding.
+
+        :param name: the adaptive property the binding belongs to
+        :param follows: the property whose changes are followed
+        :param callback: handler to bind, or `None` to only remove the
+                         binding which is currently in place
+        """
+
+        bindings = self.__dict__.setdefault("_adaptive_bindings", {})
+        current = bindings.pop(name, None)
+
+        if current is not None:
+            self.unbind(**{current[0]: current[1]})
+
+        if callback is not None:
+            self.bind(**{follows: callback})
+            bindings[name] = (follows, callback)
+
+    def _adaptive_texture_height(self, *args) -> None:
+        if self.height != self.texture_size[1]:
+            self.height = self.texture_size[1]
+
+    def _adaptive_texture_width(self, *args) -> None:
+        if self.width != self.texture_size[0]:
+            self.width = self.texture_size[0]
+
+    def _adaptive_texture_size(self, *args) -> None:
+        if tuple(self.size) != tuple(self.texture_size):
+            self.size = self.texture_size
+
+    def _adaptive_minimum_height(self, *args) -> None:
+        if self.height != self.minimum_height:
+            self.height = self.minimum_height
+
+    def _adaptive_minimum_width(self, *args) -> None:
+        if self.width != self.minimum_width:
+            self.width = self.minimum_width
+
+    def _adaptive_minimum_size(self, *args) -> None:
+        if tuple(self.size) != tuple(self.minimum_size):
+            self.size = self.minimum_size
+
     def on_adaptive_height(self, md_widget, value: bool) -> None:
-        self.size_hint_y = None
+        if value:
+            self.size_hint_y = None
+
         if issubclass(self.__class__, Label):
-            self.bind(
-                texture_size=lambda *x: self.setter("height")(
-                    self, self.texture_size[1]
-                )
+            self._set_adaptive_binding(
+                "adaptive_height",
+                "texture_size",
+                self._adaptive_texture_height if value else None,
             )
-        else:
-            if not isinstance(self, (FloatLayout, Screen)):
-                self.bind(minimum_height=self.setter("height"))
-                if not self.children:
-                    self.height = 0
+            if value:
+                self._adaptive_texture_height()
+        elif not isinstance(self, (FloatLayout, Screen)):
+            self._set_adaptive_binding(
+                "adaptive_height",
+                "minimum_height",
+                self._adaptive_minimum_height if value else None,
+            )
+            if value and not self.children:
+                self.height = 0
 
     def on_adaptive_width(self, md_widget, value: bool) -> None:
-        self.size_hint_x = None
+        if value:
+            self.size_hint_x = None
+
         if issubclass(self.__class__, Label):
-            self.bind(
-                texture_size=lambda *x: self.setter("width")(
-                    self, self.texture_size[0]
-                )
+            self._set_adaptive_binding(
+                "adaptive_width",
+                "texture_size",
+                self._adaptive_texture_width if value else None,
             )
-        else:
-            if not isinstance(self, (FloatLayout, Screen)):
-                self.bind(minimum_width=self.setter("width"))
-                if not self.children:
-                    self.width = 0
+            if value:
+                self._adaptive_texture_width()
+        elif not isinstance(self, (FloatLayout, Screen)):
+            self._set_adaptive_binding(
+                "adaptive_width",
+                "minimum_width",
+                self._adaptive_minimum_width if value else None,
+            )
+            if value and not self.children:
+                self.width = 0
 
     def on_adaptive_size(self, md_widget, value: bool) -> None:
-        self.size_hint = (None, None)
+        if value:
+            self.size_hint = (None, None)
+
         if issubclass(self.__class__, Label):
-            self.text_size = (None, None)
-            self.bind(
-                texture_size=lambda *x: self.setter("size")(
-                    self, self.texture_size
-                )
+            if value:
+                self.text_size = (None, None)
+            self._set_adaptive_binding(
+                "adaptive_size",
+                "texture_size",
+                self._adaptive_texture_size if value else None,
             )
-        else:
-            if not isinstance(self, (FloatLayout, Screen)):
-                self.bind(minimum_size=self.setter("size"))
-                if not self.children:
-                    self.size = (0, 0)
+            if value:
+                self._adaptive_texture_size()
+        elif not isinstance(self, (FloatLayout, Screen)):
+            self._set_adaptive_binding(
+                "adaptive_size",
+                "minimum_size",
+                self._adaptive_minimum_size if value else None,
+            )
+            if value and not self.children:
+                self.size = (0, 0)
