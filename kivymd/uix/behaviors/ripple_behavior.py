@@ -578,6 +578,12 @@ class CircularRippleBehavior(CommonRipple):
         if not self.ripple_effect:
             return
 
+        if getattr(self, "fbo", None) is None:
+            self.init_fbos()
+            if getattr(self, "fbo", None) is None:
+                # Still couldn't create FBO; skip rendering for now.
+                return
+        
         with (
             self.canvas.after
             if self.ripple_canvas_after
@@ -697,15 +703,24 @@ class M3CommonRipple(CommonRipple):
     def init_fbos(self):
         self._phase = 0.0
         self.ripple_pos = (0, 0)
-        # TODO: Remove group also deallocates it from mem?
-        self.fbo = Fbo(size=self.size, group="m3_ripple_behavior")
+        # Ensure we create an FBO with a non-zero size
+        w, h = self._clamp_size(self.width, self.height)
+        fbo_size = (max(1, int(round(w))), max(1, int(round(h))))
+
+        try:
+            self.fbo = Fbo(size=fbo_size, group="m3_ripple_behavior")
+        except Exception:
+            # Could not create FBO now (context not ready or other GL issue).
+            self.fbo = None
+            return
+
         self.set_shader(self.fbo)
 
         with self.fbo:
             ClearColor(0, 0, 0, 0)
             ClearBuffers()
             Color(1, 1, 1, 1)
-            self.rect = Rectangle(pos=(0, 0), size=self.size)
+            self.rect = Rectangle(pos=(0, 0), size=fbo_size)
 
     def _get_actual_radius(self):
         if hasattr(self, "radius"):
