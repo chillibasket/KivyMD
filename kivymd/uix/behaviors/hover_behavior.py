@@ -209,12 +209,72 @@ class HoverBehavior:
     and defaults to  `True`.
     """
 
+    always_detect_hover = BooleanProperty(False)
+    """
+    Follow the pointer even when nothing about this widget appears to react
+    to it.
+
+    A widget which draws no focus state and neither overrides nor binds
+    `on_enter` and `on_leave` is skipped, since working out whether the
+    pointer is over it costs a walk up the widget tree and the answer would go
+    unused. Handlers bound after the first mouse movement cannot be seen by
+    that check - set this to `True` for those.
+
+    .. versionadded:: 2.0.0
+
+    :attr:`always_detect_hover` is a :class:`~kivy.properties.BooleanProperty`
+    and defaults to `False`.
+    """
+
     __events__ = ("on_enter", "on_leave")
 
     def __init__(self, *args, **kwargs):
+        self._hover_pos = None
+        self._hover_handled = None
+
         # Bind mouse position updates globally.
         Window.bind(mouse_pos=self.on_mouse_update)
         super().__init__(*args, **kwargs)
+
+    def _clear_hover(self) -> None:
+        """Drops the hover state, telling the widget about it if it had one."""
+
+        self.hovering = False
+        self.enter_point = None
+
+        if self.hover_visible:
+            self.hover_visible = False
+            self.dispatch("on_leave")
+
+    def _hover_is_wanted(self) -> bool:
+        """Whether following the pointer over this widget changes anything."""
+
+        if self._hover_handled is None:
+            cls = type(self)
+            standard = (
+                "HoverBehavior.on_enter",
+                "HoverBehavior.on_leave",
+                "StateLayerBehavior.on_enter",
+                "StateLayerBehavior.on_leave",
+            )
+            self._hover_handled = (
+                getattr(cls.on_enter, "__qualname__", "") not in standard
+                or getattr(cls.on_leave, "__qualname__", "") not in standard
+            )
+
+            # Handlers bound from outside the class count as well
+            for event in ("on_enter", "on_leave"):
+                try:
+                    if self.get_property_observers(event):
+                        self._hover_handled = True
+                except Exception:
+                    pass
+
+        return (
+            self._hover_handled
+            or self.always_detect_hover
+            or bool(getattr(self, "focus_behavior", False))
+        )
 
     def is_mouse_inside_widget(self, pos):
         """
@@ -239,20 +299,30 @@ class HoverBehavior:
         or exited.
         """
 
-        if not self.allow_hover or not self.get_root_window():
+        if not self._hover_is_wanted() or not self.allow_hover:
             return
 
         pos = args[1]
 
+        # Return if mouse position hasn't changed
+        if pos == self._hover_pos:
+            return
+
+        self._hover_pos = pos
+
+        # If widget is disabled or invisible, don't fire events
+        if self.disabled or not self.width or not self.height or not self.opacity:
+            self._clear_hover()
+            return
+
+        # Walks the widget tree, so it comes after all the checks above
+        if not self.get_root_window():
+            return
+
         # Check if mouse is within widget.
         if not self.is_mouse_inside_widget(pos):
             # If previously hovering — fire leave event.
-            if self.hovering:
-                self.hovering = False
-                self.enter_point = None
-                if self.hover_visible:
-                    self.hover_visible = False
-                    self.dispatch("on_leave")
+            self._clear_hover()
             return
 
         # Already hovering — nothing new to do.
