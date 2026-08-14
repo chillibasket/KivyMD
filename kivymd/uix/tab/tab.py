@@ -986,6 +986,32 @@ class MDTabsCarousel(DeclarativeBehavior, Carousel):
 
     _tabs = ObjectProperty()  # MDTabsPrimary/MDTabsSecondary object
 
+    def on_lock_swiping(self, instance, value: bool) -> None:
+        """Fired when swiping is locked or unlocked."""
+        self._insert_visible_slides()
+        self._trigger_position_visible_slides()
+
+    def _insert_visible_slides(self, _next_slide=None, _prev_slide=None):
+        """Attaches the slides which can be seen."""
+
+        if not self.lock_swiping or _next_slide or _prev_slide:
+            return super()._insert_visible_slides(_next_slide, _prev_slide)
+
+        current_slide = self.current_slide
+        self._prev = None
+        self._next = None
+        self._current = (
+            self.get_slide_container(current_slide) if current_slide else None
+        )
+
+        super_remove = super(Carousel, self).remove_widget
+
+        for container in self.slides_container:
+            super_remove(container)
+
+        if self._current:
+            super(Carousel, self).add_widget(self._current)
+
     def on_touch_move(self, touch) -> str | bool | None:
         if self.lock_swiping:  # lock a swiping
             return
@@ -1344,6 +1370,7 @@ class MDTabsPrimary(DeclarativeBehavior, ThemableBehavior, BoxLayout):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         Clock.schedule_once(self._check_panel_height)
+        Clock.schedule_once(self._set_slides_attributes)
 
     def add_widget(self, widget, *args, **kwargs):
         if isinstance(widget, MDTabsCarousel):
@@ -1703,6 +1730,15 @@ class MDTabsPrimary(DeclarativeBehavior, ThemableBehavior, BoxLayout):
             switch_by("text", text)
         elif icon:
             switch_by("icon", icon)
+
+    def _set_slides_attributes(self, *args):
+        if self._tabs_carousel:
+            tabs_item_list = self.ids.container.children.copy()
+            tabs_item_list.reverse()
+
+            for i, tab_item in enumerate(tabs_item_list):
+                setattr(tab_item, "_tab_content", self._tabs_carousel.slides[i])
+                setattr(self._tabs_carousel.slides[i], "tab_item", tab_item)
 
     def _get_tab_item_text_icon_object(
         self, get_type="text"
